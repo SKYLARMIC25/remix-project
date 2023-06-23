@@ -42,16 +42,15 @@ export const listenToEvents = (compileTabLogic: CompileTabLogic, api) => (dispat
   api.onContentChanged = () => {
     dispatch(setEditorMode('contentChanged'))
   }
-
   compileTabLogic.compiler.event.register('loadingCompiler', () => {
     dispatch(setCompilerMode('loadingCompiler'))
   })
 
-  compileTabLogic.compiler.event.register('compilerLoaded', () => {
-    dispatch(setCompilerMode('compilerLoaded'))
+  compileTabLogic.compiler.event.register('compilerLoaded', (version, license) => {
+    dispatch(setCompilerMode('compilerLoaded', version, license))
   })
 
-  compileTabLogic.compiler.event.register('compilationFinished', (success, data, source) => {
-    dispatch(setCompilerMode('compilationFinished', success, data, source))
+  compileTabLogic.compiler.event.register('compilationFinished', (success, data, source, input, version) => {
+    dispatch(setCompilerMode('compilationFinished', success, data, source, input, version))
   })
 }

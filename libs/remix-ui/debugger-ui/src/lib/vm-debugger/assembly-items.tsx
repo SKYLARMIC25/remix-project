@@ -9,12 +9,17 @@ export const AssemblyItems = ({ registerEvent }) => {
   const [nextSelectedItems, setNextSelectedItems] = useState([1])
   const [returnInstructionIndexes, setReturnInstructionIndexes] = useState([])
   const [outOfGasInstructionIndexes, setOutOfGasInstructionIndexes] = useState([])
+  const [opcodeTooltipText, setOpcodeTooltipText] = useState('')
   const refs = useRef({})
   const asmItemsRef = useRef(null)
 
   useEffect(() => {
     registerEvent && registerEvent('codeManagerChanged', (code, address, index, nextIndexes, returnInstructionIndexes, outOfGasInstructionIndexes) => {
       dispatch({ type: 'FETCH_OPCODES_SUCCESS', payload: { code, address, index, nextIndexes, returnInstructionIndexes, outOfGasInstructionIndexes } })
+    })
+
+    registerEvent && registerEvent('lineGasCostChanged', (instructionsIndexes: number[], line: []) => {
+      dispatch({ type: 'FETCH_INDEXES_FOR_NEW_LINE', payload: { currentLineIndexes: instructionsIndexes || [], line } })
     })
   }, [])
 
@@ -98,7 +103,6 @@ export const AssemblyItems = ({ registerEvent }) => {
 
       const currentItem = codeView.children[index]
       if (currentItem) {
-        currentItem.style.setProperty('border-color', 'var(--warning)')
         currentItem.style.setProperty('border-style', 'dotted')
         currentItem.setAttribute('selected', 'selected')
       }
@@ -123,13 +127,16 @@ export const AssemblyItems = ({ registerEvent }) => {
   }
 
   return (
-    <div className="border rounded px-1 mt-1 bg-light">
+    <div className="h-100 border rounded px-1 mt-1 bg-light">
       <div className='dropdownpanel'>
-        <div className='dropdowncontent'>
-          <div className="pl-2 my-1 small instructions" id='asmitems' ref={asmItemsRef}>
+        <div className='dropdowncontent pb-2'>
+          { assemblyItems.display.length == 0 && <div>No data available</div> }
+          <div className="pl-2 my-1 small instructions" data-id="asmitems" id='asmitems' ref={asmItemsRef}>
             {
               assemblyItems.display.map((item, i) => {
-                return <div className="px-1" key={i} ref={ref => { refs.current[i] = ref }}><span>{item}</span></div>
+                return <div className="px-1" key={i} ref={ref => { refs.current[i] = ref }}>
+                  <span>{item}</span>{assemblyItems.currentLineIndexes.includes(i) ? <span><i><b> - LINE {assemblyItems.line + 1}</b></i></span> : ' - '}
+                </div>
               })
             }
           </div>

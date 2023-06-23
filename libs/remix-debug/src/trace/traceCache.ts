@@ -1,5 +1,6 @@
 'use strict'
 import { util } from '@remix-project/remix-lib'
+const { toHexPaddedString } = util
 // eslint-disable-next-line camelcase
 const { sha3_256 } = util
 
@@ -17,6 +18,7 @@ export class TraceCache {
   memoryChanges
   storageChanges
   sstore
+  formattedMemory
 
   constructor () {
     this.init()
@@ -36,6 +38,7 @@ export class TraceCache {
     this.addresses = []
     this.callDataChanges = []
     this.memoryChanges = []
+    this.formattedMemory = {}
     this.storageChanges = []
     this.sstore = {} // all sstore occurence in the trace
   }
@@ -53,6 +56,10 @@ export class TraceCache {
     this.memoryChanges.push(value)
   }
 
+  setFormattedMemory (stepIndex, memory) {
+    this.formattedMemory[stepIndex] = memory
+  }
+
   // outOfGas has been removed because gas left logging is apparently made differently
   // in the vm/geth/eth. TODO add the error property (with about the error in all clients)
   pushCall (step, index, address, callStack, reverted) {
@@ -62,7 +69,7 @@ export class TraceCache {
       if (!validReturnStep) {
         this.currentCall.call.reverted = reverted
       }
-      var parent = this.currentCall.parent
+      const parent = this.currentCall.parent
       if (parent) this.currentCall = { call: parent.call, parent: parent.parent }
       return
     }
@@ -97,8 +104,8 @@ export class TraceCache {
   pushContractCreationFromMemory (index, token, trace, lastMemoryChange) {
     const memory = trace[lastMemoryChange].memory
     const stack = trace[index].stack
-    const offset = 2 * parseInt(stack[stack.length - 2], 16)
-    const size = 2 * parseInt(stack[stack.length - 3], 16)
+    const offset = 2 * parseInt(toHexPaddedString(stack[stack.length - 2]), 16)
+    const size = 2 * parseInt(toHexPaddedString(stack[stack.length - 3]), 16)
     this.contractCreation[token] = '0x' + memory.join('').substr(offset, size)
   }
 
@@ -123,12 +130,12 @@ export class TraceCache {
 
   accumulateStorageChanges (index, address, storage) {
     const ret = Object.assign({}, storage)
-    for (var k in this.storageChanges) {
+    for (const k in this.storageChanges) {
       const changesIndex = this.storageChanges[k]
       if (changesIndex > index) {
         return ret
       }
-      var sstore = this.sstore[changesIndex]
+      const sstore = this.sstore[changesIndex]
       if (sstore.address === address && sstore.key) {
         ret[sstore.hashedKey] = {
           key: sstore.key,

@@ -1,20 +1,32 @@
 var async = require('async')
-var ethutil = require('ethereumjs-util')
 var remixLib = require('@remix-project/remix-lib')
+import { bufferToHex } from '@ethereumjs/util'
+import { hash } from '@remix-project/remix-lib'
+import { Plugin } from '@remixproject/engine'
+import * as packageJson from '../../../../.././../../package.json'
 var EventManager = remixLib.EventManager
 var format = remixLib.execution.txFormat
 var txHelper = remixLib.execution.txHelper
-const helper = require('../../../../lib/helper')
+import { addressToString } from '@remix-ui/helper'
 
+const _paq = window._paq = window._paq || []  //eslint-disable-line
+
+const profile = {
+  name: 'recorder',
+  displayName: 'Recorder',
+  description: 'Records transactions to save and run',
+  version: packageJson.version,
+  methods: [  ]
+}
 /**
   * Record transaction as long as the user create them.
   */
-class Recorder {
+class Recorder extends Plugin {
   constructor (blockchain) {
-    var self = this
-    self.event = new EventManager()
-    self.blockchain = blockchain
-    self.data = { _listen: true, _replay: false, journal: [], _createdContracts: {}, _createdContractsReverse: {}, _usedAccounts: {}, _abis: {}, _contractABIReferences: {}, _linkReferences: {} }
+    super(profile)
+    this.event = new EventManager()
+    this.blockchain = blockchain
+    this.data = { _listen: true, _replay: false, journal: [], _createdContracts: {}, _createdContractsReverse: {}, _usedAccounts: {}, _abis: {}, _contractABIReferences: {}, _linkReferences: {} }
 
     this.blockchain.event.register('initiatingTransaction', (timestamp, tx, payLoad) => {
       if (tx.useCall) return
@@ -22,10 +34,16 @@ class Recorder {
 
       // convert to and from to tokens
       if (this.data._listen) {
-        var record = { value, parameters: payLoad.funArgs }
+        var record = { 
+          value,
+          inputs: txHelper.serializeInputs(payLoad.funAbi),
+          parameters: payLoad.funArgs,
+          name: payLoad.funAbi.name,          
+          type: payLoad.funAbi.type
+        }
         if (!to) {
           var abi = payLoad.contractABI
-          var keccak = ethutil.bufferToHex(ethutil.keccakFromString(JSON.stringify(abi)))
+          var keccak = bufferToHex(hash.keccakFromString(JSON.stringify(abi)))
           record.abi = keccak
           record.contractName = payLoad.contractName
           record.bytecode = payLoad.contractBytecode
@@ -33,21 +51,18 @@ class Recorder {
           if (record.linkReferences && Object.keys(record.linkReferences).length) {
             for (var file in record.linkReferences) {
               for (var lib in record.linkReferences[file]) {
-                self.data._linkReferences[lib] = '<address>'
+                this.data._linkReferences[lib] = '<address>'
               }
             }
           }
-          self.data._abis[keccak] = abi
+          this.data._abis[keccak] = abi
 
           this.data._contractABIReferences[timestamp] = keccak
         } else {
           var creationTimestamp = this.data._createdContracts[to]
           record.to = `created{${creationTimestamp}}`
           record.abi = this.data._contractABIReferences[creationTimestamp]
-        }
-        record.name = payLoad.funAbi.name
-        record.inputs = txHelper.serializeInputs(payLoad.funAbi)
-        record.type = payLoad.funAbi.type
+        }        
         for (var p in record.parameters) {
           var thisarg = record.parameters[p]
           var thistimestamp = this.data._createdContracts[thisarg]
@@ -57,8 +72,8 @@ class Recorder {
         this.blockchain.getAccounts((error, accounts) => {
           if (error) return console.log(error)
           record.from = `account{${accounts.indexOf(from)}}`
-          self.data._usedAccounts[record.from] = from
-          self.append(timestamp, record)
+          this.data._usedAccounts[record.from] = from
+          this.append(timestamp, record)
         })
       }
     })
@@ -68,7 +83,7 @@ class Recorder {
       if (call) return
       const rawAddress = txResult.receipt.contractAddress
       if (!rawAddress) return // not a contract creation
-      const address = helper.addressToString(rawAddress)
+      const address = addressToString(rawAddress)
       // save back created addresses for the convertion from tokens to real adresses
       this.data._createdContracts[address] = timestamp
       this.data._createdContractsReverse[timestamp] = address
@@ -128,9 +143,8 @@ class Recorder {
     *
     */
   append (timestamp, record) {
-    var self = this
-    self.data.journal.push({ timestamp, record })
-    self.event.trigger('newTxRecorded', [self.data.journal.length])
+    this.data.journal.push({ timestamp, record })
+    this.event.trigger('newTxRecorded', [this.data.journal.length])
   }
 
   /**
@@ -138,17 +152,16 @@ class Recorder {
     *
     */
   getAll () {
-    var self = this
-    var records = [].concat(self.data.journal)
+    var records = [].concat(this.data.journal)
     return {
-      accounts: self.data._usedAccounts,
-      linkReferences: self.data._linkReferences,
+      accounts: this.data._usedAccounts,
+      linkReferences: this.data._linkReferences,
       transactions: records.sort((A, B) => {
         var stampA = A.timestamp
         var stampB = B.timestamp
         return stampA - stampB
       }),
-      abis: self.data._abis
+      abis: this.data._abis
     }
   }
 
@@ -157,34 +170,49 @@ class Recorder {
     *
     */
   clearAll () {
-    var self = this
-    self.data._listen = true
-    self.data._replay = false
-    self.data.journal = []
-    self.data._createdContracts = {}
-    self.data._createdContractsReverse = {}
-    self.data._usedAccounts = {}
-    self.data._abis = {}
-    self.data._contractABIReferences = {}
-    self.data._linkReferences = {}
-    self.event.trigger('cleared', [])
+    this.data._listen = true
+    this.data._replay = false
+    this.data.journal = []
+    this.data._createdContracts = {}
+    this.data._createdContractsReverse = {}
+    this.data._usedAccounts = {}
+    this.data._abis = {}
+    this.data._contractABIReferences = {}
+    this.data._linkReferences = {}
+    this.event.trigger('cleared', [])
   }
 
   /**
     * run the list of records
     *
+    * @param {Object} records
     * @param {Object} accounts
     * @param {Object} options
     * @param {Object} abis
+    * @param {Object} linkReferences
+    * @param {Function} confirmationCb
+    * @param {Function} continueCb
+    * @param {Function} promptCb
+    * @param {Function} alertCb
+    * @param {Function} logCallBack
+    * @param {Function} liveMode
     * @param {Function} newContractFn
     *
     */
-  run (records, accounts, options, abis, linkReferences, confirmationCb, continueCb, promptCb, alertCb, logCallBack, newContractFn) {
-    var self = this
-    self.setListen(false)
-    logCallBack(`Running ${records.length} transaction(s) ...`)
-    async.eachOfSeries(records, function (tx, index, cb) {
-      var record = self.resolveAddress(tx.record, accounts, options)
+  run (records, accounts, options, abis, linkReferences, confirmationCb, continueCb, promptCb, alertCb, logCallBack, liveMode, newContractFn) {
+    this.setListen(false)
+    const liveMsg = liveMode ? ' with updated contracts' : ''
+    logCallBack(`Running ${records.length} transaction(s)${liveMsg} ...`)
+    async.eachOfSeries(records, async (tx, index, cb) => {
+      if (liveMode && tx.record.type === 'constructor') {
+        // resolve the bytecode and ABI using the contract name, this ensure getting the last compiled one.
+        const data = await this.call('compilerArtefacts', 'getArtefactsByContractName', tx.record.contractName)
+        tx.record.bytecode = data.artefact.evm.bytecode.object
+        const updatedABIKeccak = bufferToHex(hash.keccakFromString(JSON.stringify(data.artefact.abi)))
+        abis[updatedABIKeccak] = data.artefact.abi
+        tx.record.abi = updatedABIKeccak
+      }
+      var record = this.resolveAddress(tx.record, accounts, options)
       var abi = abis[tx.record.abi]
       if (!abi) {
         return alertCb('cannot find ABI for ' + tx.record.abi + '.  Execution stopped at ' + index)
@@ -193,9 +221,9 @@ class Recorder {
       if (record.linkReferences && Object.keys(record.linkReferences).length) {
         for (var k in linkReferences) {
           var link = linkReferences[k]
-          var timestamp = self.extractTimestamp(link)
-          if (timestamp && self.data._createdContractsReverse[timestamp]) {
-            link = self.data._createdContractsReverse[timestamp]
+          var timestamp = this.extractTimestamp(link)
+          if (timestamp && this.data._createdContractsReverse[timestamp]) {
+            link = this.data._createdContractsReverse[timestamp]
           }
           tx.record.bytecode = format.linkLibraryStandardFromlinkReferences(k, link.replace('0x', ''), tx.record.bytecode, tx.record.linkReferences)
         }
@@ -224,8 +252,8 @@ class Recorder {
               isString = false
               value = JSON.stringify(value)
             }
-            for (var timestamp in self.data._createdContractsReverse) {
-              value = value.replace(new RegExp('created\\{' + timestamp + '\\}', 'g'), self.data._createdContractsReverse[timestamp])
+            for (var timestamp in this.data._createdContractsReverse) {
+              value = value.replace(new RegExp('created\\{' + timestamp + '\\}', 'g'), this.data._createdContractsReverse[timestamp])
             }
             if (!isString) value = JSON.parse(value)
             tx.record.parameters[index] = value
@@ -243,27 +271,29 @@ class Recorder {
       logCallBack(`(${index}) data: ${data.data}`)
       record.data = { dataHex: data.data, funArgs: tx.record.parameters, funAbi: fnABI, contractBytecode: tx.record.bytecode, contractName: tx.record.contractName, timestamp: tx.timestamp }
 
-      self.blockchain.runTx(record, confirmationCb, continueCb, promptCb,
-        function (err, txResult, rawAddress) {
+      this.blockchain.runTx(record, confirmationCb, continueCb, promptCb,
+        (err, txResult, rawAddress) => {
           if (err) {
             console.error(err)
             return logCallBack(err + '. Execution failed at ' + index)
           }
           if (rawAddress) {
-            const address = helper.addressToString(rawAddress)
+            const address = addressToString(rawAddress)
             // save back created addresses for the convertion from tokens to real adresses
-            self.data._createdContracts[address] = tx.timestamp
-            self.data._createdContractsReverse[tx.timestamp] = address
+            this.data._createdContracts[address] = tx.timestamp
+            this.data._createdContractsReverse[tx.timestamp] = address
             newContractFn(abi, address, record.contractName)
           }
           cb(err)
         }
       )
-    }, () => { self.setListen(true); self.clearAll() })
+    }, () => { this.setListen(true) })
   }
 
-  runScenario (json, continueCb, promptCb, alertCb, confirmationCb, logCallBack, cb) {
+  runScenario (liveMode, json, continueCb, promptCb, alertCb, confirmationCb, logCallBack, cb) {
+    _paq.push(['trackEvent', 'run', 'recorder', 'start'])
     if (!json) {
+      _paq.push(['trackEvent', 'run', 'recorder', 'wrong-json'])
       return cb('a json content must be provided')
     }
     if (typeof json === 'string') {
@@ -274,21 +304,26 @@ class Recorder {
       }
     }
 
+    let txArray
+    let accounts
+    let options
+    let abis
+    let linkReferences
     try {
-      var txArray = json.transactions || []
-      var accounts = json.accounts || []
-      var options = json.options || {}
-      var abis = json.abis || {}
-      var linkReferences = json.linkReferences || {}
+      txArray = json.transactions || []
+      accounts = json.accounts || []
+      options = json.options || {}
+      abis = json.abis || {}
+      linkReferences = json.linkReferences || {}
     } catch (e) {
-      return cb('Invalid Scenario File. Please try again')
+      return cb('Invalid scenario file. Please try again')
     }
 
     if (!txArray.length) {
-      return
+      return cb('No transactions found in scenario file')
     }
 
-    this.run(txArray, accounts, options, abis, linkReferences, confirmationCb, continueCb, promptCb, alertCb, logCallBack, (abi, address, contractName) => {
+    this.run(txArray, accounts, options, abis, linkReferences, confirmationCb, continueCb, promptCb, alertCb, logCallBack, liveMode, (abi, address, contractName) => {
       cb(null, abi, address, contractName)
     })
   }

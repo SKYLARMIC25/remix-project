@@ -5,18 +5,29 @@ import './toaster.css'
 
 /* eslint-disable-next-line */
 export interface ToasterProps {
-  message: string
-  timeOut?: number
+  message: string | JSX.Element
+  timeOut?: number,
+  handleHide?: () => void,
+  timestamp?: number
 }
 
 export const Toaster = (props: ToasterProps) => {
-  const [state, setState] = useState({
+  const [state, setState] = useState<{
+    message: string | JSX.Element,
+    hide: boolean,
+    hiding: boolean,
+    timeOutId: any,
+    timeOut: number,
+    showModal: boolean,
+    showFullBtn: boolean
+  }>({
     message: '',
     hide: true,
     hiding: false,
     timeOutId: null,
     timeOut: props.timeOut || 7000,
-    showModal: false
+    showModal: false,
+    showFullBtn: false
   })
 
   useEffect(() => {
@@ -28,12 +39,18 @@ export const Toaster = (props: ToasterProps) => {
       }, state.timeOut)
 
       setState(prevState => {
-        const shortTooltipText = props.message.length > 201 ? props.message.substring(0, 200) + '...' : props.message
+        if (typeof props.message === 'string' && (props.message.length > 201)) {
+          const shortTooltipText = props.message.substring(0, 200) + '...'
 
-        return { ...prevState, hide: false, hiding: false, timeOutId, message: shortTooltipText }
+          return { ...prevState, hide: false, hiding: false, timeOutId, message: shortTooltipText }
+        } else {
+          const shortTooltipText = props.message
+
+          return { ...prevState, hide: false, hiding: false, timeOutId, message: shortTooltipText }
+        }
       })
     }
-  }, [props.message])
+  }, [props.message, props.timestamp])
 
   useEffect(() => {
     if (state.hiding) {
@@ -59,6 +76,7 @@ export const Toaster = (props: ToasterProps) => {
     if (state.timeOutId) {
       clearTimeout(state.timeOutId)
     }
+    props.handleHide && props.handleHide()
     setState(prevState => {
       return { ...prevState, message: '', hide: true, hiding: false, timeOutId: null, showModal: false }
     })
@@ -90,6 +108,7 @@ export const Toaster = (props: ToasterProps) => {
   return (
     <>
       <ModalDialog
+        id='toaster'
         message={props.message}
         cancelLabel='Close'
         cancelFn={() => {}}
@@ -100,7 +119,7 @@ export const Toaster = (props: ToasterProps) => {
         <div data-shared="tooltipPopup" className={`remixui_tooltip alert alert-info p-2 ${state.hiding ? 'remixui_animateTop' : 'remixui_animateBottom'}`} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
           <span className="px-2">
             { state.message }
-            { (props.message.length > 201) && <button className="btn btn-secondary btn-sm mx-3" style={{ whiteSpace: 'nowrap' }} onClick={showFullMessage}>Show full message</button> }
+            { state.showFullBtn && <button className="btn btn-secondary btn-sm mx-3" style={{ whiteSpace: 'nowrap' }} onClick={showFullMessage}>Show full message</button> }
           </span>
           <span style={{ alignSelf: 'baseline' }}>
             <button data-id="tooltipCloseButton" className="fas fa-times btn-info mx-1 p-0" onClick={closeTheToaster}></button>

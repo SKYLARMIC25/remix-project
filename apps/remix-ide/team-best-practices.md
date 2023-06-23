@@ -2,9 +2,8 @@
 # Team best practices
 
 This document aims to address contibutors best practices of the following repositories:
- - remix-ide https://github.com/ethereum/remix-ide
- - remix https://github.com/ethereum/remix
- - remixd https://github.com/ethereum/remixd
+ - remix-ide https://github.com/ethereum/remix-project
+ - remix-plugin https://github.com/ethereum/remix-plugin
 
 This document is not in its final version, **a team meeting which aim to address new/old best practices, feedback, workflows, all kind of issues related to how the team work together occurs every 2 weeks.**
 This document link to other specialised best practices (like coding best practices).
@@ -15,11 +14,10 @@ Related links:
  - Remix live: https://remix.ethereum.org
  - Remix alpha live: https://remix-alpha.ethereum.org
  - Remix beta live: https://remix-beta.ethereum.org
- - Remix-ide NPM module: https://www.npmjs.com/package/remix-ide
- - Remix-lib NPM module: https://www.npmjs.com/package/remix-lib
- - Remix-tests NPM module: https://www.npmjs.com/package/remix-test
- - Remix-solidity NPM module: https://www.npmjs.com/package/remix-solidity
- - Remix-debug NPM module: https://www.npmjs.com/package/remix-debug
+ - Remix-lib NPM module: https://www.npmjs.com/package/@remix-project/remix-lib
+ - Remix-tests NPM module: https://www.npmjs.com/package/@remix-project/remix-tests
+ - Remix-solidity NPM module: https://www.npmjs.com/package/@remix-project/remix-solidity
+ - Remix-debug NPM module: https://www.npmjs.com/package/@remix-project/remix-debug
  - Remix documentation: http://remix-ide.readthedocs.io/en/latest/
  - General gitter channel: https://gitter.im/ethereum/remix
  - Dev gitter channel: https://gitter.im/ethereum/remix-dev
@@ -54,7 +52,7 @@ Related links:
      - How the backend (if any) works / will work (could be a smart contract).
      - How the frontend works / will work.
      - What is the general vision of the UX design for this particular story.
-     Later progress and discussion is updated directly on the issue or pull request (Github).
+     Later progress and discussion is updated directly on the issue or pull request (GitHub).
  
 ---
 
@@ -72,7 +70,7 @@ Before starting coding, we should ensure all devs / contributors are aware of:
 
 # Story / Bug fix
 
-- Prioritised list of PRs / issues are tracked in a Github Project, Remix IDE issues are managed by a prioritized backlog.
+- Prioritised list of PRs / issues are tracked in a GitHub Project, Remix IDE issues are managed by a prioritized backlog.
 - Every story can be executed by a single developer or a group of 2 or more developers (depending on the size and complexity)
 - Each dev should take the part he/she feels the most confortable with.
 - Later progress and discussion is updated directly on the issue or pull request (github).

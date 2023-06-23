@@ -5,7 +5,7 @@ import StepDetail from './step-detail' // eslint-disable-line
 import SolidityState from './solidity-state' // eslint-disable-line
 import SolidityLocals from './solidity-locals' // eslint-disable-line
 
-export const VmDebuggerHead = ({ vmDebugger: { registerEvent, triggerEvent } }) => {
+export const VmDebuggerHead = ({ vmDebugger: { registerEvent, triggerEvent }, debugging }) => {
   const [functionPanel, setFunctionPanel] = useState(null)
   const [stepDetail, setStepDetail] = useState({
     'vm trace step': '-',
@@ -31,7 +31,7 @@ export const VmDebuggerHead = ({ vmDebugger: { registerEvent, triggerEvent } }) 
       const functions = []
 
       for (const func of stack) {
-        functions.push(func.functionDefinition.name + '(' + func.inputs.join(', ') + ')')
+        functions.push((func.functionDefinition.name || func.functionDefinition.kind) + '(' + func.inputs.join(', ') + ')' + ' - ' + func.gasCost + ' gas')
       }
       setFunctionPanel(() => functions)
     })
@@ -95,18 +95,18 @@ export const VmDebuggerHead = ({ vmDebugger: { registerEvent, triggerEvent } }) 
         return { ...solidityLocals, message }
       })
     })
-  }, [registerEvent])
+  }, [debugging])
 
   return (
-    <div id='vmheadView' className="mt-1 px-0">
-      <div className='d-flex flex-column'>
-        <div className='w-100'>
-          <FunctionPanel data={functionPanel} />
-          <SolidityLocals data={solidityLocals.calldata} message={solidityLocals.message} registerEvent={registerEvent} triggerEvent={triggerEvent} />
-          <SolidityState calldata={solidityState.calldata} message={solidityState.message} />
-        </div>
-        <div className='w-100'><CodeListView registerEvent={registerEvent} /></div>
-        <div className='w-100'><StepDetail stepDetail={stepDetail} /></div>
+    <div id='vmheadView' className="mt-1 px-2 d-flex">
+      <div className='d-flex flex-column pr-2' style={{ flex:1 }}>
+        <FunctionPanel className="pb-1" data={functionPanel} />
+        <SolidityLocals className="pb-1"  data={solidityLocals.calldata} message={solidityLocals.message} registerEvent={registerEvent} triggerEvent={triggerEvent} />
+        <CodeListView className="pb-2 flex-grow-1" registerEvent={registerEvent} />
+      </div>
+      <div className='d-flex flex-column pl-2' style={{ flex:1 }}>
+        <SolidityState className="pb-1" calldata={solidityState.calldata} message={solidityState.message} />
+        <StepDetail className="pb-1 pb-2 h-100 flex-grow-1" stepDetail={stepDetail} />
       </div>
     </div>
   )

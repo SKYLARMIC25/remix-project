@@ -1,8 +1,10 @@
 import fs from './fileSystem'
 import async from 'async'
 import path from 'path'
+import deepequal from 'deep-equal'
 import Log from './logger'
 import { Compiler as RemixCompiler } from '@remix-project/remix-solidity'
+import { RemixURLResolver } from '@remix-project/remix-url-resolver'
 import { SrcIfc, CompilerConfiguration, CompilationErrors } from './types'
 const logger = new Log()
 const log = logger.logger
@@ -12,15 +14,18 @@ function regexIndexOf (inputString: string, regex: RegExp, startpos = 0) {
   return (indexOf >= 0) ? (indexOf + (startpos)) : indexOf
 }
 
-function writeTestAccountsContract (accounts: string[]) {
-  const testAccountContract = require('../sol/tests_accounts.sol')
-  let body = `address[${accounts.length}] memory accounts;`
-  if (!accounts.length) body += ';'
-  else {
+export function writeTestAccountsContract (accounts: string[]) {
+  const testAccountContract = require('../sol/tests_accounts.sol') // eslint-disable-line
+  let body = ''
+  if (accounts.length) {
+    body = `address[${accounts.length}] memory accounts;`
     accounts.map((address, index) => {
-      body += `\naccounts[${index}] = ${address};\n`
+      body += `\n\t\taccounts[${index}] = ${address};\n`
     })
-  }
+    body += `return accounts[index];`
+  } else {
+    body = `return address(0);`
+  }  
   return testAccountContract.replace('>accounts<', body)
 }
 
@@ -46,7 +51,6 @@ function isRemixTestFile (path: string) {
 
 function processFile (filePath: string, sources: SrcIfc, isRoot = false) {
   const importRegEx = /import ['"](.+?)['"];/g
-  let group: RegExpExecArray| null = null
   const isFileAlreadyInSources: boolean = Object.keys(sources).includes(filePath)
 
   // Return if file is a remix test file or already processed
@@ -61,14 +65,6 @@ function processFile (filePath: string, sources: SrcIfc, isRoot = false) {
     content = includeTestLibs.concat(content)
   }
   sources[filePath] = { content }
-  importRegEx.exec('') // Resetting state of RegEx
-
-  // Process each 'import' in file content
-  while ((group = importRegEx.exec(content))) {
-    const importedFile: string = group[1]
-    const importedFilePath: string = path.join(path.dirname(filePath), importedFile)
-    processFile(importedFilePath, sources)
-  }
 }
 
 const userAgent = (typeof (navigator) !== 'undefined') && navigator.userAgent ? navigator.userAgent.toLowerCase() : '-'
@@ -93,6 +89,17 @@ export function compileFileOrFiles (filename: string, isDirectory: boolean, opts
     'remix_accounts.sol': { content: writeTestAccountsContract(accounts) }
   }
   const filepath: string = (isDirectory ? filename : path.dirname(filename))
+  const importsCallback = (url, cb) => {
+    try {
+      if(fs.existsSync(url)) cb(null, fs.readFileSync(url, 'utf-8'))
+      else {
+        const urlResolver = new RemixURLResolver()
+        urlResolver.resolve(url).then((result) => cb(null, result.content)).catch((error) => cb(error.message))
+      }
+    } catch (e) {
+      cb(e.message)
+    }
+  }
   try {
     if (!isDirectory && fs.existsSync(filename)) {
       if (filename.split('.').pop() === 'sol') {
@@ -122,7 +129,7 @@ export function compileFileOrFiles (filename: string, isDirectory: boolean, opts
   } finally {
     async.waterfall([
       function loadCompiler (next) {
-        compiler = new RemixCompiler()
+        compiler = new RemixCompiler(importsCallback)
         if (compilerConfig) {
           const { currentCompilerUrl, evmVersion, optimize, runs } = compilerConfig
           if (evmVersion) compiler.set('evmVersion', evmVersion)
@@ -130,7 +137,7 @@ export function compileFileOrFiles (filename: string, isDirectory: boolean, opts
           if (runs) compiler.set('runs', runs)
           if (currentCompilerUrl) {
             compiler.loadRemoteVersion(currentCompilerUrl)
-            compiler.event.register('compilerLoaded', this, function (version) {
+            compiler.event.register('compilerLoaded', this, function (version, license) {
               next()
             })
           } else {
@@ -144,7 +151,7 @@ export function compileFileOrFiles (filename: string, isDirectory: boolean, opts
       },
       function doCompilation (next) {
         // @ts-ignore
-        compiler.event.register('compilationFinished', this, (success, data, source) => {
+        compiler.event.register('compilationFinished', this, (success, data, source, input, version) => {
           next(null, data)
         })
         compiler.compile(sources, filepath)
@@ -154,7 +161,7 @@ export function compileFileOrFiles (filename: string, isDirectory: boolean, opts
       if (result.error) error.push(result.error)
       const errors = (result.errors || error).filter((e) => e.type === 'Error' || e.severity === 'error')
       if (errors.length > 0) {
-        if (!isBrowser) require('signale').fatal(errors)
+        if (!isBrowser) require('signale').fatal(errors) // eslint-disable-line
         return cb(new CompilationErrors(errors))
       }
       cb(err, result.contracts, result.sources) // return callback with contract details & ASTs
@@ -170,15 +177,9 @@ export function compileFileOrFiles (filename: string, isDirectory: boolean, opts
  * @param opts Options
  * @param cb Callback
  */
-export function compileContractSources (sources: SrcIfc, compilerConfig: CompilerConfiguration, importFileCb: any, opts: any, cb): void {
-  let compiler, filepath: string
-  const accounts: string[] = opts.accounts || []
-  // Iterate over sources keys. Inject test libraries. Inject test library import statements.
-  if (!('remix_tests.sol' in sources) && !('tests.sol' in sources)) {
-    sources['tests.sol'] = { content: require('../sol/tests.sol.js') }
-    sources['remix_tests.sol'] = { content: require('../sol/tests.sol.js') }
-    sources['remix_accounts.sol'] = { content: writeTestAccountsContract(accounts) }
-  }
+export function compileContractSources (sources: SrcIfc, newCompConfig: any, importFileCb, UTRunner, opts: any, cb): void {
+  let compiler
+  const filepath = opts.testFilePath || ''
   const testFileImportRegEx = /^(import)\s['"](remix_tests.sol|tests.sol)['"];/gm
 
   const includeTestLibs = '\nimport \'remix_tests.sol\';\n'
@@ -190,24 +191,34 @@ export function compileContractSources (sources: SrcIfc, compilerConfig: Compile
   }
 
   async.waterfall([
-    function loadCompiler (next) {
-      const { currentCompilerUrl, evmVersion, optimize, runs, usingWorker } = compilerConfig
-      compiler = new RemixCompiler(importFileCb)
-      compiler.set('evmVersion', evmVersion)
-      compiler.set('optimize', optimize)
-      compiler.set('runs', runs)
-      compiler.loadVersion(usingWorker, currentCompilerUrl)
-      // @ts-ignore
-      compiler.event.register('compilerLoaded', this, (version) => {
+    (next) => {
+      if (!compiler || !deepequal(UTRunner.compilerConfig, newCompConfig)) {
+        UTRunner.compilerConfig = newCompConfig
+        const { currentCompilerUrl, evmVersion, optimize, runs, usingWorker } = newCompConfig
+        compiler = new RemixCompiler(importFileCb)
+        compiler.set('evmVersion', evmVersion)
+        compiler.set('optimize', optimize)
+        compiler.set('runs', runs)
+        compiler.loadVersion(usingWorker, currentCompilerUrl)
+        // @ts-ignore
+        compiler.event.register('compilerLoaded', this, (version, license) => {
+          next()
+        })
+      } else {
+        compiler = UTRunner.compiler
         next()
-      })
+      }
     },
-    function doCompilation (next) {
-      // @ts-ignore
-      compiler.event.register('compilationFinished', this, (success, data, source) => {
-        if (opts && opts.event) opts.event.emit('compilationFinished', success, data, source)
+    (next) => {
+      const compilationFinishedCb = (success, data, source, input, version) => {
+        // data.error usually exists for exceptions like worker error etc.
+        if (!data.error) UTRunner.compiler = compiler
+        if (opts && opts.event) opts.event.emit('compilationFinished', success, data, source, input, version)
         next(null, data)
-      })
+      }
+      compiler.event.unregister('compilationFinished', compilationFinishedCb)
+      // @ts-ignore
+      compiler.event.register('compilationFinished', compilationFinishedCb)
       compiler.compile(sources, filepath)
     }
   ], function (err: Error | null | undefined, result: any) {
@@ -215,7 +226,7 @@ export function compileContractSources (sources: SrcIfc, compilerConfig: Compile
     if (result.error) error.push(result.error)
     const errors = (result.errors || error).filter((e) => e.type === 'Error' || e.severity === 'error')
     if (errors.length > 0) {
-      if (!isBrowser) require('signale').fatal(errors)
+      if (!isBrowser) require('signale').fatal(errors) // eslint-disable-line
       return cb(new CompilationErrors(errors))
     }
     cb(err, result.contracts, result.sources) // return callback with contract details & ASTs

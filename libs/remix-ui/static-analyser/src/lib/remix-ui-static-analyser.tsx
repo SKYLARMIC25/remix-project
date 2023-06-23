@@ -1,14 +1,21 @@
-import React, { useEffect, useState, useReducer } from 'react' // eslint-disable-line
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import React, { useEffect, useState, useReducer, useRef, Fragment } from 'react' // eslint-disable-line
 import Button from './Button/StaticAnalyserButton' // eslint-disable-line
 import { util } from '@remix-project/remix-lib'
 import _ from 'lodash'
+import * as semver from 'semver'
 import { TreeView, TreeViewItem } from '@remix-ui/tree-view' // eslint-disable-line
 import { RemixUiCheckbox } from '@remix-ui/checkbox' // eslint-disable-line
 import ErrorRenderer from './ErrorRenderer' // eslint-disable-line
 import { compilation } from './actions/staticAnalysisActions'
 import { initialState, analysisReducer } from './reducers/staticAnalysisReducer'
-import { OverlayTrigger, Tooltip } from 'react-bootstrap'// eslint-disable-line
 import { CodeAnalysis } from '@remix-project/remix-analyzer'
+import Tab from 'react-bootstrap/Tab'
+import Tabs from 'react-bootstrap/Tabs'
+import { AnalysisTab, SolHintReport } from '../staticanalyser'
+import { run } from './actions/staticAnalysisActions'
+import { BasicTitle, calculateWarningStateEntries } from './components/BasicTitle'
 
 declare global {
   interface Window {
@@ -21,7 +28,7 @@ const _paq = window._paq = window._paq || []  //eslint-disable-line
 export interface RemixUiStaticAnalyserProps {
   registry: any,
   event: any,
-  analysisModule: any
+  analysisModule: AnalysisTab
 }
 
 export const RemixUiStaticAnalyser = (props: RemixUiStaticAnalyserProps) => {
@@ -61,14 +68,43 @@ export const RemixUiStaticAnalyser = (props: RemixUiStaticAnalyserProps) => {
     }
     return indexOfCategory
   }
-  const [autoRun, setAutoRun] = useState(true)
-  const [slitherEnabled, setSlitherEnabled] = useState(false)
+  const [basicEnabled, setBasicEnabled] = useState(true)
+  const [solhintEnabled, setSolhintEnabled] = useState(true) // assuming that solhint is always enabled
   const [showSlither, setShowSlither] = useState(false)
+  const [slitherEnabled, setSlitherEnabled] = useState(false)
+  const [startAnalysis, setStartAnalysis] = useState(false)
+  const [isSupportedVersion, setIsSupportedVersion] = useState(false)
+  let [showLibsWarning, setShowLibsWarning] = useState(false) // eslint-disable-line prefer-const
   const [categoryIndex, setCategoryIndex] = useState(groupedModuleIndex(groupedModules))
-
-  const warningContainer = React.useRef(null)
   const [warningState, setWarningState] = useState({})
+  const [hideWarnings, setHideWarnings] = useState(false)
+  const [hints, setHints] = useState<SolHintReport[]>([])
+  const [slitherWarnings, setSlitherWarnings] = useState([])
+  const [ssaWarnings, setSsaWarnings] = useState([])
+
+  const warningContainer = useRef(null)
+  const allWarnings = useRef({})
   const [state, dispatch] = useReducer(analysisReducer, initialState)
+  const [runButtonTitle, setRunButtonTitle] = useState<string>(`Run analysis`)
+
+  /**
+   * Disable static analysis for contracts whose compiler version is
+   * less than 0.4.12
+   * @param version {string} - Solidity compiler version
+   */
+  const setDisableForRun = (version: string) => {
+    const truncateVersion = (version: string) => {
+      const tmp: RegExpExecArray | null = /^(\d+.\d+.\d+)/.exec(version)
+      return tmp ? tmp[1] : version
+    }
+    if (version && version != '' && !semver.gt(truncateVersion(version), '0.4.12')) {
+      setIsSupportedVersion(false)
+      setRunButtonTitle('Select Solidity compiler version greater than 0.4.12.')
+    } else {
+      setIsSupportedVersion(true)
+      setRunButtonTitle(`${state && state.data && state.file.length > 0 ? 'Run analysis': 'To run analysis tools, first compile a contract.'}`)
+    }
+  }
 
   useEffect(() => {
     compilation(props.analysisModule, dispatch)
@@ -76,15 +112,27 @@ export const RemixUiStaticAnalyser = (props: RemixUiStaticAnalyserProps) => {
 
   useEffect(() => {
     setWarningState({})
-    if (autoRun) {
-      if (state.data !== null) {
-        run(state.data, state.source, state.file)
-      }
-    } else {
-      props.event.trigger('staticAnaysisWarning', [])
+    const runAnalysis = async () => {
+      await run(state.data, state.source, state.file, state, props, isSupportedVersion, showSlither, categoryIndex, groupedModules, runner,_paq, message, showWarnings, allWarnings, warningContainer,calculateWarningStateEntries, warningState, setHints, hints, setSlitherWarnings, setSsaWarnings, slitherEnabled, setStartAnalysis)
     }
+    props.event.trigger('staticAnaysisWarning', [])
     return () => { }
   }, [state])
+
+  useEffect(() => {
+    props.analysisModule.call('solidity', 'getCompilerState').then((compilerState) => setDisableForRun(compilerState.currentVersion))
+  }, [])
+
+  useEffect(() => {
+    const checkRemixdActive = async () => {
+      const remixdActive = await props.analysisModule.call('manager', 'isActive', 'remixd')
+      if (remixdActive) {
+        setSlitherEnabled(true)
+        setShowSlither(true)
+      }
+    }
+    checkRemixdActive()
+  }, [props])
 
   useEffect(() => {
     props.analysisModule.on('filePanel', 'setWorkspace', (currentWorkspace) => {
@@ -93,9 +141,15 @@ export const RemixUiStaticAnalyser = (props: RemixUiStaticAnalyserProps) => {
       // Reset badge
       props.event.trigger('staticAnaysisWarning', [])
       // Reset state
-      dispatch({ type: '', payload: {} })
+      dispatch({ type: '', payload: initialState })
+      setHints([])
+      setSlitherWarnings([])
+      setSsaWarnings([])
       // Show 'Enable Slither Analysis' checkbox
-      if (currentWorkspace && currentWorkspace.isLocalhost === true) setShowSlither(true)
+      if (currentWorkspace && currentWorkspace.isLocalhost === true) {
+        setShowSlither(true)
+        setSlitherEnabled(true)
+      }
       else {
         setShowSlither(false)
         setSlitherEnabled(false)
@@ -106,30 +160,67 @@ export const RemixUiStaticAnalyser = (props: RemixUiStaticAnalyserProps) => {
       if (plugin.name === 'remixd') {
         // Reset warning state
         setWarningState([])
+        setHints([])
+        setSlitherWarnings([])
+        setSlitherEnabled(false)
+        setSsaWarnings([])
         // Reset badge
         props.event.trigger('staticAnaysisWarning', [])
         // Reset state
-        dispatch({ type: '', payload: {} })
+        dispatch({ type: '', payload: initialState })
         setShowSlither(false)
-        setSlitherEnabled(false)
       }
+    })
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    props.analysisModule.on('solidity', 'compilerLoaded', async (version: string, license: string) => {
+      setDisableForRun(version)
     })
     return () => { }
   }, [props])
 
-  const message = (name, warning, more, fileName, locationString) : string => {
+  const message = (name: string, warning: any, more?: string, fileName?: string, locationString?: string) : string => {
     return (`
-    <span className='d-flex flex-column'>
-    <span className='h6 font-weight-bold'>${name}</span>
-    ${warning}
-    ${more
-      ? (<span><a href={more} target='_blank'>more</a></span>)
-      : (<span> </span>)
-    }
-    <span className="" title={Position in ${fileName}}>Pos: ${locationString}</span>
-    </span>`
+      <span className='d-flex flex-column'>
+      <span className='h6 font-weight-bold'>${name}</span>
+      ${warning}
+      ${more
+        ? (<span><a href={more} target='_blank'>more</a></span>)
+        : (<span> </span>)
+      }
+      <span className="" title={Position in ${fileName}}>Pos: ${locationString}</span>
+      </span>`
     )
   }
+
+  const filterWarnings = () => {
+    let newWarningState = {}
+    let newWarningCount = 0
+    if (showLibsWarning) {
+      for (const category in allWarnings.current)
+        newWarningCount = newWarningCount + allWarnings.current[category].length
+      newWarningState = allWarnings.current
+    }
+    else {
+      for (const category in allWarnings.current) {
+        const warnings = allWarnings.current[category]
+        newWarningState[category] = []
+        for (const warning of warnings) {
+          if (!warning.options.isLibrary) {
+            newWarningCount++
+            newWarningState[category].push(warning)
+          }
+        }
+      }
+    }
+    props.event.trigger('staticAnaysisWarning', [newWarningCount])
+    setWarningState(newWarningState)
+  }
+
+  useEffect(() => {
+    if(hints.length > 0) {
+      props.event.trigger('staticAnaysisWarning', [hints.length])
+    }
+  },[hints.length, state])
 
   const showWarnings = (warningMessage, groupByKey) => {
     const resultArray = []
@@ -149,151 +240,10 @@ export const RemixUiStaticAnalyser = (props: RemixUiStaticAnalyserProps) => {
     }
 
     const groupedCategory = groupBy(resultArray, groupByKey)
-    setWarningState(groupedCategory)
+    allWarnings.current = groupedCategory
+    filterWarnings()
   }
 
-  const run = (lastCompilationResult, lastCompilationSource, currentFile) => {
-    if (state.data !== null) {
-      if (lastCompilationResult && (categoryIndex.length > 0 || slitherEnabled)) {
-        let warningCount = 0
-        const warningMessage = []
-        const warningErrors = []
-
-        // Remix Analysis
-        _paq.push(['trackEvent', 'solidityStaticAnalyzer', 'analyzeWithRemixAnalyzer'])
-        runner.run(lastCompilationResult, categoryIndex, results => {
-          results.map((result) => {
-            let moduleName
-            Object.keys(groupedModules).map(key => {
-              groupedModules[key].forEach(el => {
-                if (el.name === result.name) {
-                  moduleName = groupedModules[key][0].categoryDisplayName
-                }
-              })
-            })
-            result.report.map((item) => {
-              let location: any = {}
-              let locationString = 'not available'
-              let column = 0
-              let row = 0
-              let fileName = currentFile
-              if (item.location) {
-                const split = item.location.split(':')
-                const file = split[2]
-                location = {
-                  start: parseInt(split[0]),
-                  length: parseInt(split[1])
-                }
-                location = props.analysisModule._deps.offsetToLineColumnConverter.offsetToLineColumn(
-                  location,
-                  parseInt(file),
-                  lastCompilationSource.sources,
-                  lastCompilationResult.sources
-                )
-                row = location.start.line
-                column = location.start.column
-                locationString = row + 1 + ':' + column + ':'
-                fileName = Object.keys(lastCompilationResult.sources)[file]
-              }
-              warningCount++
-              const msg = message(result.name, item.warning, item.more, fileName, locationString)
-              const options = {
-                type: 'warning',
-                useSpan: true,
-                errFile: fileName,
-                fileName,
-                errLine: row,
-                errCol: column,
-                item: item,
-                name: result.name,
-                locationString,
-                more: item.more,
-                location: location
-              }
-              warningErrors.push(options)
-              warningMessage.push({ msg, options, hasWarning: true, warningModuleName: moduleName })
-            })
-          })
-          // Slither Analysis
-          if (slitherEnabled) {
-            props.analysisModule.call('solidity', 'getCompilerState').then((compilerState) => {
-              const { currentVersion, optimize, evmVersion } = compilerState
-              props.analysisModule.call('terminal', 'log', { type: 'info', value: '[Slither Analysis]: Running...' })
-              _paq.push(['trackEvent', 'solidityStaticAnalyzer', 'analyzeWithSlither'])
-              props.analysisModule.call('slither', 'analyse', state.file, { currentVersion, optimize, evmVersion }).then(async (result) => {
-                if (result.status) {
-                  props.analysisModule.call('terminal', 'log', { type: 'info', value: `[Slither Analysis]: Analysis Completed!! ${result.count} warnings found.` })
-                  const report = result.data
-                  for (const item of report) {
-                    let location: any = {}
-                    let locationString = 'not available'
-                    let column = 0
-                    let row = 0
-                    let fileName = currentFile
-
-                    if (item.sourceMap && item.sourceMap.length) {
-                      let path = item.sourceMap[0].source_mapping.filename_relative
-                      let fileIndex = Object.keys(lastCompilationResult.sources).indexOf(path)
-                      if (fileIndex === -1) {
-                        path = await props.analysisModule.call('fileManager', 'getUrlFromPath', path)
-                        fileIndex = Object.keys(lastCompilationResult.sources).indexOf(path.file)
-                      }
-                      if (fileIndex >= 0) {
-                        location = {
-                          start: item.sourceMap[0].source_mapping.start,
-                          length: item.sourceMap[0].source_mapping.length
-                        }
-                        location = props.analysisModule._deps.offsetToLineColumnConverter.offsetToLineColumn(
-                          location,
-                          fileIndex,
-                          lastCompilationSource.sources,
-                          lastCompilationResult.sources
-                        )
-                        row = location.start.line
-                        column = location.start.column
-                        locationString = row + 1 + ':' + column + ':'
-                        fileName = Object.keys(lastCompilationResult.sources)[fileIndex]
-                      }
-                    }
-                    warningCount++
-                    const msg = message(item.title, item.description, item.more, fileName, locationString)
-                    const options = {
-                      type: 'warning',
-                      useSpan: true,
-                      errFile: fileName,
-                      fileName,
-                      errLine: row,
-                      errCol: column,
-                      item: { warning: item.description },
-                      name: item.title,
-                      locationString,
-                      more: item.more,
-                      location: location
-                    }
-                    warningErrors.push(options)
-                    warningMessage.push({ msg, options, hasWarning: true, warningModuleName: 'Slither Analysis' })
-                  }
-                  showWarnings(warningMessage, 'warningModuleName')
-                  props.event.trigger('staticAnaysisWarning', [warningCount])
-                }
-              }).catch(() => {
-                props.analysisModule.call('terminal', 'log', { type: 'error', value: '[Slither Analysis]: Error occured! See remixd console for details.' })
-                showWarnings(warningMessage, 'warningModuleName')
-              })
-            })
-          } else {
-            showWarnings(warningMessage, 'warningModuleName')
-            props.event.trigger('staticAnaysisWarning', [warningCount])
-          }
-        })
-      } else {
-        if (categoryIndex.length) {
-          warningContainer.current.innerText = 'No compiled AST available'
-        }
-        props.event.trigger('staticAnaysisWarning', [-1])
-      }
-    }
-  }
 
   const handleCheckAllModules = (groupedModules) => {
     const index = groupedModuleIndex(groupedModules)
@@ -321,19 +271,29 @@ export const RemixUiStaticAnalyser = (props: RemixUiStaticAnalyserProps) => {
     }
   }
 
-  const handleSlitherEnabled = () => {
-    if (slitherEnabled) {
-      setSlitherEnabled(false)
-    } else {
-      setSlitherEnabled(true)
+  const handleSlitherEnabled = async () => {
+    const checkRemixd = await props.analysisModule.call('manager', 'isActive', 'remixd')
+    if (showSlither) {
+      setShowSlither(false)
+    }
+    if(!showSlither) {
+      setShowSlither(true)
     }
   }
 
-  const handleAutoRun = () => {
-    if (autoRun) {
-      setAutoRun(false)
+  const handleBasicEnabled = () => {
+    if (basicEnabled) {
+      setBasicEnabled(false)
     } else {
-      setAutoRun(true)
+      setBasicEnabled(true)
+    }
+  }
+
+  const handleLinterEnabled = () => {
+    if (solhintEnabled) {
+      setSolhintEnabled(false)
+    } else {
+      setSolhintEnabled(true)
     }
   }
 
@@ -344,6 +304,17 @@ export const RemixUiStaticAnalyser = (props: RemixUiStaticAnalyserProps) => {
     } else {
       setCategoryIndex(_.uniq([...categoryIndex, _index]))
     }
+  }
+
+  const handleShowLibsWarning = () => {
+    if (showLibsWarning) {
+      showLibsWarning = false
+      setShowLibsWarning(false)
+    } else {
+      showLibsWarning = true
+      setShowLibsWarning(true)
+    }
+    filterWarnings()
   }
 
   const categoryItem = (categoryId, item, i) => {
@@ -386,7 +357,7 @@ export const RemixUiStaticAnalyser = (props: RemixUiStaticAnalyserProps) => {
               expand={false}
             >
               <div>
-                <RemixUiCheckbox onClick={() => handleCheckOrUncheckCategory(category)} id={categoryId} inputType="checkbox" label={`Select ${category[0].categoryDisplayName}`} name='checkCategoryEntry' checked={category.map(x => x._index.toString()).every(el => categoryIndex.includes(el))} onChange={() => {}}/>
+                <RemixUiCheckbox onClick={() => handleCheckOrUncheckCategory(category)} id={categoryId} inputType="checkbox" label={`Select ${category[0].categoryDisplayName}`} name='checkCategoryEntry' checked={category.map(x => x._index.toString()).every(el => categoryIndex.includes(el))} onChange={() => {}} title={category[0].categoryDisplayName} tooltipPlacement="right"/>
               </div>
               <div className="w-100 d-block px-2 my-1 entries collapse multi-collapse" id={`heading${categoryId}`}>
                 {category.map((item, i) => {
@@ -402,95 +373,413 @@ export const RemixUiStaticAnalyser = (props: RemixUiStaticAnalyserProps) => {
     )
   }
 
+  const handleHideWarnings = () => {
+    setHideWarnings(!hideWarnings)
+  }
+
+  const hintErrors = hints.filter(hint => hint.type === 'error')
+  const noLibSlitherWarnings = slitherWarnings.filter(w => !w.options.isLibrary)
+  const slitherErrors = noLibSlitherWarnings.filter(slitherError => slitherError.options.type === 'error')
+
+  const tabKeys = [
+    {
+      tabKey: "linter",
+      child: (
+        <>
+          {hints.length > 0 ? (
+            <div id="solhintlintingresult" className="mb-5">
+              <div className="mb-4 pt-2">
+                <Fragment>
+                  {!hideWarnings
+                    ? hints.map((hint, index) => (
+                        <div
+                          key={index}
+                          className={`${
+                            hint.type === "warning"
+                              ? "alert alert-warning"
+                              : "alert alert-danger"
+                          }`}
+                          style={{ cursor: "pointer", overflow: 'hidden', textOverflow: 'ellipsis' }}
+                          onClick={async () => {
+                            await props.analysisModule.call(
+                              "editor",
+                              "discardHighlight"
+                            )
+                            await props.analysisModule.call(
+                              "editor",
+                              "highlight",
+                              {
+                                end: {
+                                  line: hint.line,
+                                  column: hint.column + 1,
+                                },
+                                start: {
+                                  line: hint.line,
+                                  column: hint.column,
+                                },
+                              },
+                              state.file,
+                              "",
+                              { focus: true }
+                            );
+                          }}
+                        >
+                          <div>
+                            <span className="text-wrap">
+                              {hint.formattedMessage}
+                            </span>
+                            <span>{hint.type}</span>
+                            <br />
+                            <span>{`${hint.column}:${hint.line}`}</span>
+                          </div>
+                        </div>
+                      ))
+                    : hintErrors.map((hint, index) => (
+                        <div
+                          key={index}
+                          className="alert alert-danger"
+                          style={{ cursor: "pointer", overflow: 'hidden', textOverflow: 'ellipsis' }}
+                          onClick={async () => {
+                            await props.analysisModule.call(
+                              "editor",
+                              "discardHighlight"
+                            );
+                            await props.analysisModule.call(
+                              "editor",
+                              "highlight",
+                              {
+                                end: {
+                                  line: hint.line,
+                                  column: hint.column + 1,
+                                },
+                                start: {
+                                  line: hint.line,
+                                  column: hint.column,
+                                },
+                              },
+                              state.file,
+                              "",
+                              { focus: true }
+                            );
+                          }}
+                        >
+                          <div>
+                            <span className="text-wrap" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {hint.formattedMessage}
+                            </span>
+                            <br />
+                            <span>{hint.type}</span>
+                            <br />
+                            <span>{`${hint.column}:${hint.line}`}</span>
+                          </div>
+                        </div>
+                      ))}
+                </Fragment>
+              </div>
+            </div>
+          ) : state.data && state.file.length > 0 && state.source && startAnalysis && hints.length > 0 ? <span className="ml-4 spinner-grow-sm d-flex justify-content-center">Loading...</span> : <span className="display-6 text-center">Nothing to report</span>}
+        </>
+      ),
+      title: (
+        <span>
+          Linter
+          {hints.length > 0 ? (
+            hideWarnings ? (
+              <i className={`badge ${hints.filter(x => x.type === 'error').length > 0
+                ? `badge-danger` : 'badge-warning'} rounded-circle ml-1 text-center`}>
+                {hintErrors.length}
+              </i>
+            ) : (
+              <i className={`badge ${hints.filter(x => x.type === 'error').length > 0
+              ? `badge-danger` : 'badge-warning'} rounded-circle ml-1 text-center`}>
+                {hints.length}
+              </i>
+            )
+          ) : null}
+        </span>
+      ),
+    },
+    {
+      tabKey: "basic",
+      title: (
+        <BasicTitle
+          warningStateEntries={Object.entries(warningState)}
+          hideWarnings={hideWarnings}
+        />
+      ),
+      child: (
+        <>
+          {Object.entries(warningState).length > 0 ? (
+            <div id="staticanalysisresult">
+              <div className="mb-4 pt-2">
+                {Object.entries(warningState).map((element, index) => (
+                  <div key={index}>
+                    { !hideWarnings && element[1]['length'] > 0 ? <span className="text-dark h6">{element[0]}</span> : null}
+                    {!hideWarnings ? element[1]["map"](
+                      (x,i) => // eslint-disable-line dot-notation
+                        x.hasWarning
+                        ? ( // eslint-disable-next-line  dot-notation
+                          <div
+                            data-id={`staticAnalysisModule${x.warningModuleName}${i}`}
+                            id={`staticAnalysisModule${x.warningModuleName}${i}`}
+                            key={i}
+                          >
+                            <ErrorRenderer
+                              name={`staticAnalysisModule${x.warningModuleName}${i}`}
+                              message={x.msg}
+                              opt={x.options}
+                              warningErrors={x.warningErrors}
+                              editor={props.analysisModule}
+                            />
+                          </div>
+                        ) : null
+                    ) : element[1]["map"](
+                      (x,i) => // eslint-disable-line dot-notation
+                        !x.hasWarning
+                        ? ( // eslint-disable-next-line  dot-notation
+                          <div
+                            data-id={`staticAnalysisModule${x.warningModuleName}${i}`}
+                            id={`staticAnalysisModule${x.warningModuleName}${i}`}
+                            key={i}
+                          >
+                            <ErrorRenderer
+                              name={`staticAnalysisModule${x.warningModuleName}${i}`}
+                              message={x.msg}
+                              opt={x.options}
+                              warningErrors={x.warningErrors}
+                              editor={props.analysisModule}
+                            />
+                          </div>
+                        ) : null)}
+                    {}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : state.data && state.file.length > 0 && state.source && startAnalysis && Object.entries(warningState).length > 0 ? <span className="ml-4 spinner-grow-sm d-flex justify-content-center">Loading...</span> : <span className="display-6 text-center">Nothing to report</span>}
+        </>
+      ),
+    },
+    {
+      tabKey: "slither",
+      title: (
+        <span>
+          Slither
+          {slitherWarnings.length > 0 ? (
+            hideWarnings ? (
+              <i className="badge badge-warning rounded-circle ml-1">
+                {slitherErrors.length}
+              </i>
+            ) : showLibsWarning === true && hideWarnings === false ? (
+              <i className={`badge ${slitherErrors.length > 0 ? `badge-danger` : 'badge-warning'} rounded-circle ml-1 text-center`}>
+                  {slitherWarnings.length}
+                </i>
+            )  : (
+              <i className={`badge ${slitherErrors.length > 0 ? `badge-danger` : 'badge-warning'} rounded-circle ml-1 text-center`}>
+                {noLibSlitherWarnings.length}
+              </i>
+            )
+          ) : null}
+        </span>
+      ),
+      child: (
+        <>
+          {slitherWarnings.length > 0 ? (
+            <div id="solhintlintingresult" className="mb-5">
+              <div className="mb-4 pt-2">
+                <Fragment>
+                  {!hideWarnings
+                    ? showLibsWarning ? slitherWarnings.map((warning, index) => (
+                      <div
+                      data-id={`staticAnalysisModule${warning.warningModuleName}${index}`}
+                      id={`staticAnalysisModule${warning.warningModuleName}${index}`}
+                      key={index}
+                    >
+                      <ErrorRenderer
+                        name={`staticAnalysisModule${warning.warningModuleName}${index}`}
+                        message={warning.msg}
+                        opt={warning.options}
+                        warningErrors={warning.warningErrors}
+                        editor={props.analysisModule}
+                      />
+                    </div>
+                      )) : noLibSlitherWarnings.map((warning, index) => (
+                      <div
+                      data-id={`staticAnalysisModule${warning.warningModuleName}${index}`}
+                      id={`staticAnalysisModule${warning.warningModuleName}${index}`}
+                      key={index}
+                    >
+                      <ErrorRenderer
+                        name={`staticAnalysisModule${warning.warningModuleName}${index}`}
+                        message={warning.msg}
+                        opt={warning.options}
+                        warningErrors={warning.warningErrors}
+                        editor={props.analysisModule}
+                      />
+                    </div>
+                      ))
+                    : slitherWarnings.filter(x => x.options.type === 'error').map((warning, index) => (
+                      <div
+                      data-id={`staticAnalysisModule${warning.warningModuleName}${index}`}
+                      id={`staticAnalysisModule${warning.warningModuleName}${index}`}
+                      key={index}
+                      >
+                      <ErrorRenderer
+                        name={`staticAnalysisModule${warning.warningModuleName}${index}`}
+                        message={warning.msg}
+                        opt={warning.options}
+                        warningErrors={warning.warningErrors}
+                        editor={props.analysisModule}
+                      />
+                    </div>
+                      ))}
+                </Fragment>
+              </div>
+            </div>
+          ) : state.data && state.file.length > 0 && state.source && startAnalysis && slitherWarnings.length > 0 ? <span className="ml-4 spinner-grow-sm d-flex justify-content-center">Loading...</span> : <span className="display-6 text-center">Nothing to report</span>}
+        </>
+      ),
+    },
+  ];
+
+  const checkBasicStatus = () => {
+    return Object.values(groupedModules).map((value: any) => {
+      return (value.map(x => {
+        return x._index.toString()
+      }))
+    }).flat().every(el => categoryIndex.includes(el))
+  }
+
   return (
     <div className="analysis_3ECCBV px-3 pb-1">
       <div className="my-2 d-flex flex-column align-items-left">
-        <div className="d-flex justify-content-between" id="staticanalysisButton">
-          <RemixUiCheckbox
+        <div className="d-flex flex-column mb-3" id="staticanalysisButton">
+        <div className="mb-3 d-flex justify-content-start">
+        <RemixUiCheckbox
             id="checkAllEntries"
             inputType="checkbox"
+            title="Remix analysis runs a basic analysis."
             checked={Object.values(groupedModules).map((value: any) => {
               return (value.map(x => {
                 return x._index.toString()
               }))
             }).flat().every(el => categoryIndex.includes(el))}
-            label="Select all"
-            onClick={() => handleCheckAllModules(groupedModules)}
+            label="Remix"
+            onClick={() => {
+              handleCheckAllModules(groupedModules)
+            }}
             onChange={() => {}}
+            tooltipPlacement={'bottom-start'}
+            optionalClassName="mr-3"
           />
+
           <RemixUiCheckbox
-            id="autorunstaticanalysis"
+            id="solhintstaticanalysis"
             inputType="checkbox"
-            onClick={handleAutoRun}
-            checked={autoRun}
-            label="Autorun"
+            title="Linter runs SolHint static analysis."
+            onClick={handleLinterEnabled}
+            checked={solhintEnabled }
+            label="Linter"
             onChange={() => {}}
+            tooltipPlacement={'bottom-start'}
+            optionalClassName="mr-3"
           />
-          <Button buttonText="Run" onClick={() => run(state.data, state.source, state.file)} disabled={(state.data === null || categoryIndex.length === 0) && !slitherEnabled }/>
-        </div>
-        { showSlither &&
-          <div className="d-flex mt-2" id="enableSlitherAnalysis">
-            <RemixUiCheckbox
-              id="enableSlither"
-              inputType="checkbox"
-              onClick={handleSlitherEnabled}
-              checked={slitherEnabled}
-              label="Enable Slither Analysis"
-              onChange={() => {}}
-            />
 
-            <a className="mt-1 text-nowrap" href='https://remix-ide.readthedocs.io/en/latest/slither.html#enable-slither-analysis' target={'_blank'}>
-              <OverlayTrigger placement={'right'} overlay={
-                <Tooltip className="text-nowrap" id="overlay-tooltip">
-                  <span className="p-1 pr-3" style={{ backgroundColor: 'black', minWidth: '230px' }}>Learn how to use Slither Analysis</span>
-                </Tooltip>
-              }>
-                <i style={{ fontSize: 'medium' }} className={'fal fa-info-circle ml-3'} aria-hidden="true"></i>
-              </OverlayTrigger>
-            </a>
-          </div>
-        }
-      </div>
-      <div id="staticanalysismodules" className="list-group list-group-flush">
-        {Object.keys(groupedModules).map((categoryId, i) => {
-          const category = groupedModules[categoryId]
-          return (
-            categorySection(category, categoryId, i)
-          )
-        })
-        }
-      </div>
-      <div className="mt-2 p-2 d-flex border-top flex-column">
-        <span>Last results for:</span>
-        <span
-          className="text-break break-word word-break font-weight-bold"
-          id="staticAnalysisCurrentFile"
-        >
-          {state.file}
-        </span>
-      </div>
-      <br/>
-      {Object.entries(warningState).length > 0 &&
-        <div id='staticanalysisresult' >
-          <div className="mb-4">
-            {
-              (Object.entries(warningState).map((element, index) => (
-                <div key={index}>
-                  <span className="text-dark h6">{element[0]}</span>
-                  {element[1]['map']((x, i) => ( // eslint-disable-line dot-notation
-                    x.hasWarning ? ( // eslint-disable-next-line  dot-notation
-                      <div data-id={`staticAnalysisModule${x.warningModuleName}${i}`} id={`staticAnalysisModule${x.warningModuleName}${i}`} key={i}>
-                        <ErrorRenderer message={x.msg} opt={x.options} warningErrors={ x.warningErrors} editor={props.analysisModule}/>
-                      </div>
-
-                    ) : null
-                  ))}
-                </div>
-              )))
-            }
-          </div>
+          <RemixUiCheckbox
+            id="enableSlither"
+            inputType="checkbox"
+            onClick={handleSlitherEnabled}
+            checked={showSlither && slitherEnabled}
+            disabled={slitherEnabled === false}
+            tooltipPlacement="bottom-start"
+            label="Slither"
+            onChange={() => {}}
+            optionalClassName="mr-3"
+            title={slitherEnabled ? "Slither runs Slither static analysis." : "To run Slither analysis, Remix IDE must be connected to your local filesystem with Remixd."}
+          />
         </div>
-      }
+          {state.data && state.file.length > 0 && state.source ? <Button
+              buttonText={`Analyse ${state.file}`}
+              classList="btn btn-sm btn-primary btn-block"
+              onClick={async () => await run(state.data, state.source, state.file, state , props, isSupportedVersion, showSlither, categoryIndex, groupedModules, runner,_paq,
+                message, showWarnings, allWarnings, warningContainer, calculateWarningStateEntries, warningState, setHints, hints, setSlitherWarnings, setSsaWarnings, slitherEnabled, setStartAnalysis)}
+              disabled={(state.data === null || !isSupportedVersion)  || (!solhintEnabled && !basicEnabled) }
+          /> : <Button
+              buttonText={`Analyze ${state.file}`}
+              title={`${runButtonTitle}`}
+              classList="btn btn-sm btn-primary btn-block"
+              onClick={async () => await run(state.data, state.source, state.file, state , props, isSupportedVersion, showSlither, categoryIndex, groupedModules, runner,_paq,
+                message, showWarnings, allWarnings, warningContainer, calculateWarningStateEntries, warningState, setHints, hints, setSlitherWarnings, setSsaWarnings, slitherEnabled, setStartAnalysis)}
+              disabled={(state.data === null || !isSupportedVersion)  || (!solhintEnabled && !basicEnabled) }
+          />}
+          {state && state.data !== null && state.source !== null && state.file.length > 0 ? (<div className="d-flex border-top flex-column">
+            {slitherWarnings.length > 0 || hints.length > 0 || Object.entries(warningState).length > 0 ?  (
+              <div className={`mt-4 p-2 d-flex ${slitherWarnings.length > 0 || hints.length > 0 || Object.entries(warningState).length > 0 ? 'border-top' : ''} flex-column`}>
+                <span>Last results for:</span>
+                  <span
+                    className="text-break break-word word-break font-weight-bold"
+                    id="staticAnalysisCurrentFile"
+                  >
+                    {state.file}
+                  </span>
+            </div>
+            ) : null}
+            <div className="border-top mt-2 pt-2 mb-2" id="staticanalysisresult">
+              <RemixUiCheckbox
+                id="showLibWarnings"
+                name="showLibWarnings"
+                categoryId="showLibWarnings"
+                inputType="checkbox"
+                checked={showLibsWarning}
+                label="Show warnings for external libraries"
+                onClick={handleShowLibsWarning}
+                onChange={() => {}}
+                tooltipPlacement="top-start"
+              />
+              <RemixUiCheckbox
+                id="hideWarnings"
+                name="hideWarnings"
+                inputType="checkbox"
+                checked={hideWarnings}
+                label="Hide warnings"
+                onClick={handleHideWarnings}
+                onChange={() => {}}
+              />
+            </div>
+            <Tabs
+              defaultActiveKey={tabKeys[0].tabKey}
+              className="px-1"
+            >
+              {
+                checkBasicStatus() ? <Tab
+                  key={tabKeys[1].tabKey}
+                  title={tabKeys[1].title}
+                  eventKey={tabKeys[1].tabKey}
+                  tabClassName="text-decoration-none font-weight-bold px-2"
+                >
+                  {tabKeys[1].child}
+                </Tab> : null
+              }
+              {solhintEnabled ? <Tab
+                key={tabKeys[0].tabKey}
+                title={tabKeys[0].title}
+                eventKey={tabKeys[0].tabKey}
+                tabClassName="text-decoration-none font-weight-bold px-2"
+              >
+                {tabKeys[0].child}
+              </Tab> : null}
+              { showSlither && slitherEnabled ? <Tab
+                key={tabKeys[2].tabKey}
+                title={tabKeys[2].title}
+                eventKey={tabKeys[2].tabKey}
+                tabClassName="text-decoration-none font-weight-bold px-2"
+              >
+                {tabKeys[2].child}
+              </Tab> : null }
+            </Tabs>
+          </div>) : null}
+        </div>
+      </div>
     </div>
   )
 }

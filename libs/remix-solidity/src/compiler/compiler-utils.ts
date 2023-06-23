@@ -1,5 +1,4 @@
-const semver = require('semver')
-const minixhr = require('minixhr')
+import * as semver from 'semver'
 /* global Worker */
 
 export const baseURLBin = 'https://binaries.soliditylang.org/bin'
@@ -17,10 +16,10 @@ export function urlFromVersion (version) {
     let location: string | Location = window.document.location
     let path = location.pathname
     if (!path.startsWith('/')) path = '/' + path
-    location = `${location.protocol}//${location.host}${path}assets/js`
+    location = `${location.protocol}//${location.host}${path}`
     if (location.endsWith('index.html')) location = location.substring(0, location.length - 10)
     if (!location.endsWith('/')) location += '/'
-    url = `${location}soljson.js`
+    url = `${location}assets/js/soljson.js`
   } else {
     version = version.replace('.Emscripten.clang', '')
     if (!version.startsWith('soljson-v')) version = 'soljson-v' + version
@@ -52,14 +51,6 @@ export function canUseWorker (selectedVersion) {
 }
 
 function browserSupportWorker () {
-  return document.location.protocol !== 'file:' && Worker !== undefined
+  return document ? document.location.protocol !== 'file:' && Worker !== undefined : false
 }
 
-// returns a promise for minixhr
-export function promisedMiniXhr (url) {
-  return new Promise((resolve, reject) => {
-    minixhr(url, (json, event) => {
-      resolve({ json, event })
-    })
-  })
-}

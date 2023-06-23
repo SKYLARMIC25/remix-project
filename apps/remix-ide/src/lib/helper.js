@@ -1,7 +1,7 @@
 var async = require('async')
-const ethJSUtil = require('ethereumjs-util')
+import { toChecksumAddress } from '@ethereumjs/util'
 
-module.exports = {
+export default  {
   shortenAddress: function (address, etherBalance) {
     var len = address.length
     return address.slice(0, 5) + '...' + address.slice(len - 5, len) + (etherBalance ? ' (' + etherBalance.toString() + ' ether)' : '')
@@ -14,7 +14,7 @@ module.exports = {
     if (address.indexOf('0x') === -1) {
       address = '0x' + address
     }
-    return ethJSUtil.toChecksumAddress(address)
+    return toChecksumAddress(address)
   },
   shortenHexData: function (data) {
     if (!data) return ''
@@ -64,7 +64,6 @@ module.exports = {
 
     do {
       const isDuplicate = await fileManager.exists(name + counter + prefix + '.' + ext)
-
       if (isDuplicate) counter = (counter | 0) + 1
       else exist = false
     } while (exist)
@@ -113,17 +112,6 @@ module.exports = {
     return text.replace(/\/+/g, '/')
   },
   find: find,
-  getPathIcon (path) {
-    return path.endsWith('.txt')
-      ? 'far fa-file-alt' : path.endsWith('.md')
-        ? 'far fa-file-alt' : path.endsWith('.sol')
-          ? 'fak fa-solidity-mono' : path.endsWith('.js')
-            ? 'fab fa-js' : path.endsWith('.json')
-              ? 'fas fa-brackets-curly' : path.endsWith('.vy')
-                ? 'fak fa-vyper-mono' : path.endsWith('.lex')
-                  ? 'fak fa-lexon' : path.endsWith('.contract')
-                    ? 'fab fa-ethereum' : 'far fa-file'
-  },
   joinPath (...paths) {
     paths = paths.filter((value) => value !== '').map((path) => path.replace(/^\/|\/$/g, '')) // remove first and last slash)
     if (paths.length === 1) return paths[0]

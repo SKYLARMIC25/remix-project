@@ -1,6 +1,6 @@
 // Extend fs
 import path from 'path'
-const fs: any = require('fs')
+const fs: any = require('fs') // eslint-disable-line
 
 // https://github.com/mikeal/node-utils/blob/master/file/lib/main.js
 fs.walkSync = function (start: string, callback) {
@@ -17,4 +17,4 @@ fs.walkSync = function (start: string, callback) {
   })
 }
 
-export = fs
+export default fs

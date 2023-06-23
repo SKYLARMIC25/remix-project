@@ -57,7 +57,7 @@ export function callFunction (from, to, data, value, gasLimit, funAbi, txRunner,
   * @param {Object} execResult    - execution result given by the VM
   * @return {Object} -  { error: true/false, message: DOMNode }
   */
-export function checkVMError (execResult, abi, contract) {
+export function checkVMError (execResult, compiledContracts) {
   const errorCode = {
     OUT_OF_GAS: 'out of gas',
     STACK_UNDERFLOW: 'stack underflow',
@@ -89,57 +89,62 @@ export function checkVMError (execResult, abi, contract) {
     ret.error = true
   } else if (exceptionError === errorCode.REVERT) {
     const returnData = execResult.returnValue
-    const returnDataHex = returnData.slice(0, 4).toString('hex')
+    const returnDataHex = returnData.slice(2, 10)
     let customError
-    if (abi) {
+    if (compiledContracts) {
       let decodedCustomErrorInputsClean
-      for (const item of abi) {
-        if (item.type === 'error') {
-          // ethers doesn't crash anymore if "error" type is specified, but it doesn't extract the errors. see:
-          // https://github.com/ethers-io/ethers.js/commit/bd05aed070ac9e1421a3e2bff2ceea150bedf9b7
-          // we need here to fake the type, so the "getSighash" function works properly
-          const fn = getFunctionFragment({ ...item, type: 'function', stateMutability: 'nonpayable' })
-          if (!fn) continue
-          const sign = fn.getSighash(item.name)
-          if (!sign) continue
-          if (returnDataHex === sign.replace('0x', '')) {
-            customError = item.name
-            const functionDesc = fn.getFunction(item.name)
-            // decoding error parameters
-            const decodedCustomErrorInputs = fn.decodeFunctionData(functionDesc, returnData)
-            decodedCustomErrorInputsClean = {}
-            let devdoc = {}
-            // "contract" reprensents the compilation result containing the NATSPEC documentation
-            if (contract && fn.functions && Object.keys(fn.functions).length) {
-              const functionSignature = Object.keys(fn.functions)[0]
-              // we check in the 'devdoc' if there's a developer documentation for this error
-              try {
-                devdoc = (contract.object.devdoc.errors && contract.object.devdoc.errors[functionSignature][0]) || {}
-              } catch (e) {
-                console.error(e.message)
-              }
-              // we check in the 'userdoc' if there's an user documentation for this error
-              try {
-                const userdoc = (contract.object.userdoc.errors && contract.object.userdoc.errors[functionSignature][0]) || {}
-                if (userdoc && (userdoc as any).notice) customError += ' : ' + (userdoc as any).notice // we append the user doc if any
-              } catch (e) {
-                console.error(e.message)
-              }
-            }
-            let inputIndex = 0
-            for (const input of functionDesc.inputs) {
-              const inputKey = input.name || inputIndex
-              const v = decodedCustomErrorInputs[inputKey]
+      for (const file of Object.keys(compiledContracts)) {
+        for (const contractName of Object.keys(compiledContracts[file])) {
+          const contract = compiledContracts[file][contractName]
+          for (const item of contract.abi) {
+            if (item.type === 'error') {
+              // ethers doesn't crash anymore if "error" type is specified, but it doesn't extract the errors. see:
+              // https://github.com/ethers-io/ethers.js/commit/bd05aed070ac9e1421a3e2bff2ceea150bedf9b7
+              // we need here to fake the type, so the "getSighash" function works properly
+              const fn = getFunctionFragment({ ...item, type: 'function', stateMutability: 'nonpayable' })
+              if (!fn) continue
+              const sign = fn.getSighash(item.name)
+              if (!sign) continue
+              if (returnDataHex === sign.replace('0x', '')) {
+                customError = item.name
+                const functionDesc = fn.getFunction(item.name)
+                // decoding error parameters
+                const decodedCustomErrorInputs = fn.decodeFunctionData(functionDesc, returnData)
+                decodedCustomErrorInputsClean = {}
+                let devdoc = {}
+                // "contract" reprensents the compilation result containing the NATSPEC documentation
+                if (contract && fn.functions && Object.keys(fn.functions).length) {
+                  const functionSignature = Object.keys(fn.functions)[0]
+                  // we check in the 'devdoc' if there's a developer documentation for this error
+                  try {
+                    devdoc = (contract.devdoc.errors && contract.devdoc.errors[functionSignature][0]) || {}
+                  } catch (e) {
+                    console.error(e.message)
+                  }
+                  // we check in the 'userdoc' if there's an user documentation for this error
+                  try {
+                    const userdoc = (contract.userdoc.errors && contract.userdoc.errors[functionSignature][0]) || {}
+                    if (userdoc && (userdoc as any).notice) customError += ' : ' + (userdoc as any).notice // we append the user doc if any
+                  } catch (e) {
+                    console.error(e.message)
+                  }
+                }
+                let inputIndex = 0
+                for (const input of functionDesc.inputs) {
+                  const inputKey = input.name || inputIndex
+                  const v = decodedCustomErrorInputs[inputKey]
 
-              decodedCustomErrorInputsClean[inputKey] = {
-                value: v.toString ? v.toString() : v
+                  decodedCustomErrorInputsClean[inputKey] = {
+                    value: v.toString ? v.toString() : v
+                  }
+                  if (devdoc && (devdoc as any).params) {
+                    decodedCustomErrorInputsClean[input.name].documentation = (devdoc as any).params[inputKey] // we add the developer documentation for this input parameter if any
+                  }
+                  inputIndex++
+                }
+                break
               }
-              if (devdoc && (devdoc as any).params) {
-                decodedCustomErrorInputsClean[input.name].documentation = (devdoc as any).params[inputKey] // we add the developer documentation for this input parameter if any
-              }
-              inputIndex++
             }
-            break
           }
         }
       }
@@ -154,7 +159,7 @@ export function checkVMError (execResult, abi, contract) {
       // It is the hash of Error(string)
       if (returnData && (returnDataHex === '08c379a0')) {
         const abiCoder = new ethers.utils.AbiCoder()
-        const reason = abiCoder.decode(['string'], returnData.slice(4))[0]
+        const reason = abiCoder.decode(['string'], '0x' + returnData.slice(10))[0]
         msg = `\tThe transaction has been reverted to the initial state.\nReason provided by the contract: "${reason}".`
       } else {
         msg = '\tThe transaction has been reverted to the initial state.\nNote: The called function should be payable if you send value and the value you send should be less than your current balance.'

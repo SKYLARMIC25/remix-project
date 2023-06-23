@@ -10,8 +10,8 @@ export async function solidityLocals (vmtraceIndex, internalTreeCall, stack, mem
   memory = formatMemory(memory)
   let anonymousIncr = 1
   for (const local in scope.locals) {
-    var variable = scope.locals[local]
-    if (variable.stackDepth < stack.length && variable.sourceLocation.start <= currentSourceLocation.start) {
+    const variable = scope.locals[local]
+    if (variable.stackDepth < stack.length && (variable.sourceLocation.start <= currentSourceLocation.start || variable.isParameter)) {
       let name = variable.name
       if (name.indexOf('$') !== -1) {
         name = '<' + anonymousIncr + '>'
@@ -21,7 +21,7 @@ export async function solidityLocals (vmtraceIndex, internalTreeCall, stack, mem
         locals[name] = await variable.type.decodeFromStack(variable.stackDepth, stack, memory, storageResolver, calldata, cursor, variable)
       } catch (e) {
         console.log(e)
-        locals[name] = { error: '<decoding failed - ' + e.message + '>' }
+        locals[name] = { error: '<decoding failed - ' + e.message + '>', type: variable && variable.type && variable.type.typeName || 'unknown' }
       }
     }
   }

@@ -8,7 +8,7 @@ import ReturnValuesPanel from './dropdown-panel' // eslint-disable-line
 import FullStoragesChangesPanel from './full-storages-changes' // eslint-disable-line
 import GlobalVariables from './global-variables' // eslint-disable-line
 
-export const VmDebugger = ({ vmDebugger: { registerEvent }, currentBlock, currentReceipt, currentTransaction }) => {
+export const VmDebugger = ({ vmDebugger: { registerEvent }, currentBlock, currentReceipt, currentTransaction, debugging }) => {
   const [calldataPanel, setCalldataPanel] = useState(null)
   const [memoryPanel, setMemoryPanel] = useState(null)
   const [callStackPanel, setCallStackPanel] = useState(null)
@@ -49,19 +49,34 @@ export const VmDebugger = ({ vmDebugger: { registerEvent }, currentBlock, curren
     registerEvent && registerEvent('traceStorageUpdate', (calldata) => {
       setFullStoragesChangesPanel(() => calldata)
     })
-  }, [registerEvent])
+  }, [debugging])
 
   return (
-    <div id='vmdebugger' className="px-2">
-      <div>
-        <StackPanel calldata={stackPanel} />
-        <MemoryPanel calldata={memoryPanel} />
-        <StoragePanel calldata={storagePanel.calldata} header={storagePanel.header} />
-        <CallstackPanel calldata={callStackPanel} />
-        <CalldataPanel calldata={calldataPanel} />
-        <GlobalVariables block={currentBlock} receipt={currentReceipt} tx={currentTransaction} />
-        <ReturnValuesPanel dropdownName='Return Value' calldata={returnValuesPanel || {}} />
-        <FullStoragesChangesPanel calldata={fullStoragesChangesPanel} />
+    <div id='vmdebugger' className="d-flex">
+      <div
+        className='d-flex flex-column px-2 pr-2'
+        style={{
+          flex: 1,
+          overflow: "hidden",
+          textOverflow: "ellipsis"
+        }}
+      >
+        <CallstackPanel className="pb-1" calldata={callStackPanel} />
+        <StackPanel className="pb-1" calldata={stackPanel} />
+        <MemoryPanel className="pb-1" calldata={memoryPanel} />
+        <StoragePanel className="pb-1" calldata={storagePanel.calldata} header={storagePanel.header} />
+        <ReturnValuesPanel className="pb-1" dropdownName='Return Value' calldata={returnValuesPanel || {}} />
+        <GlobalVariables className="pb-1" block={currentBlock} receipt={currentReceipt} tx={currentTransaction} />
+      </div>
+      <div className='d-flex flex-column px-2 pl-2'
+        style={{
+          flex: 1,
+          overflow: "hidden",
+          textOverflow: "ellipsis"
+        }}
+      >
+        <FullStoragesChangesPanel className="pb-1" calldata={fullStoragesChangesPanel} />
+        <CalldataPanel className="pb-1" calldata={calldataPanel} />
       </div>
     </div>
   )

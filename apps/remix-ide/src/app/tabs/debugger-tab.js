@@ -1,79 +1,114 @@
-import toaster from '../ui/tooltip'
+import Web3 from 'web3'
 import { DebuggerUI } from '@remix-ui/debugger-ui' // eslint-disable-line
-import { DebuggerApiMixin } from '@remixproject/debugger-plugin'
+import { DebuggerApiMixin } from '@remix-ui/debugger-ui'
 import { ViewPlugin } from '@remixproject/engine-web'
 import * as packageJson from '../../../../../package.json'
 import React from 'react' // eslint-disable-line
-import ReactDOM from 'react-dom'
-import modalDialogCustom from '../ui/modal-dialog-custom'
-import * as remixBleach from '../../lib/remixBleach'
+import { bleach } from '@remix-ui/helper'
+import { compilationFinishedToastMsg, compilingToastMsg, localCompilationToastMsg, notFoundToastMsg, sourceVerificationNotAvailableToastMsg } from '@remix-ui/helper'
 const css = require('./styles/debugger-tab-styles')
-const yo = require('yo-yo')
 
 const profile = {
   name: 'debugger',
   displayName: 'Debugger',
-  methods: ['debug', 'getTrace'],
+  methods: ['debug', 'getTrace', 'decodeLocalVariable', 'decodeStateVariable', 'globalContext'],
   events: [],
   icon: 'assets/img/debuggerLogo.webp',
   description: 'Debug transactions',
   kind: 'debugging',
   location: 'sidePanel',
   documentation: 'https://remix-ide.readthedocs.io/en/latest/debugger.html',
-  version: packageJson.version
+  version: packageJson.version,
+  maintainedBy: 'Remix'
 }
 
 export class DebuggerTab extends DebuggerApiMixin(ViewPlugin) {
   constructor () {
     super(profile)
-    this.el = null
+    this.el = document.createElement('div')
+    this.el.setAttribute('id', 'debugView')
+    this.el.classList.add(css.debuggerTabView)
     this.initDebuggerApi()
   }
 
   render () {
-    if (this.el) return this.el
-
-    this.el = yo`
-      <div class="${css.debuggerTabView}" id="debugView">
-        <div id="debugger" class="${css.debugger}"></div>
-      </div>`
-
     this.on('fetchAndCompile', 'compiling', (settings) => {
-      toaster(yo`<div><b>Recompiling and debugging with params</b><pre class="text-left">${JSON.stringify(settings, null, '\t')}</pre></div>`)
+      settings = JSON.stringify(settings, null, '\t')
+      this.call('notification', 'toast', compilingToastMsg(settings))
     })
 
     this.on('fetchAndCompile', 'compilationFailed', (data) => {
-      toaster(yo`<div><b>Compilation failed...</b> continuing <i>without</i> source code debugging.</div>`)
+      this.call('notification', 'toast', compilationFinishedToastMsg())
     })
 
     this.on('fetchAndCompile', 'notFound', (contractAddress) => {
-      toaster(yo`<div><b>Contract ${contractAddress} not found in source code repository</b> continuing <i>without</i> source code debugging.</div>`)
-    })
-
-    this.on('fetchAndCompile', 'usingLocalCompilation', (contractAddress) => {
-      toaster(yo`<div><b>Using compilation result from Solidity module</b></div>`)
+      this.call('notification', 'toast', notFoundToastMsg(contractAddress))
     })
 
     this.on('fetchAndCompile', 'sourceVerificationNotAvailable', () => {
-      toaster(yo`<div><b>Source verification plugin not activated or not available.</b> continuing <i>without</i> source code debugging.</div>`)
+      this.call('notification', 'toast', sourceVerificationNotAvailableToastMsg())
     })
-
-    this.renderComponent()
-
-    return this.el
+    const onReady = (api) => { this.api = api }
+    return <div className="overflow-hidden px-1" id='debugView'><DebuggerUI debuggerAPI={this} onReady={onReady} /></div>
   }
 
   showMessage (title, message) {
     try {
-      modalDialogCustom.alert(title, remixBleach.sanitize(message))
+      this.call('notification', 'alert', {
+        id: 'debuggerTabShowMessage',
+        title,
+        message: bleach.sanitize(message)
+      })
     } catch (e) {
       console.log(e)
     }
   }
 
-  renderComponent () {
-    ReactDOM.render(
-      <DebuggerUI debuggerAPI={this} />
-      , this.el)
+  async decodeLocalVariable (variableId) {
+    if (!this.debuggerBackend) return null
+    return await this.debuggerBackend.debugger.decodeLocalVariableByIdAtCurrentStep(this.debuggerBackend.step_manager.currentStepIndex, variableId)
+  }
+
+  async decodeStateVariable (variableId) {
+    if (!this.debuggerBackend) return null
+    return await this.debuggerBackend.debugger.decodeStateVariableByIdAtCurrentStep(this.debuggerBackend.step_manager.currentStepIndex, variableId)
+  }
+
+  async globalContext () {
+    if (this.api?.globalContext) {
+      const { tx, block } = await this.api.globalContext()
+      const blockContext = {
+        'chainid': tx.chainId,
+        'coinbase': block.miner,
+        'difficulty': block.difficulty,
+        'gaslimit': block.gasLimit,
+        'number': block.number,
+        'timestamp': block.timestamp,
+      }
+      if (block.baseFeePerGas) {
+        blockContext['basefee'] = Web3.utils.toBN(block.baseFeePerGas).toString(10) + ` Wei (${block.baseFeePerGas})`
+      }
+      const msg = {     
+        'sender': tx.from,
+        'sig': tx.input.substring(0, 10),
+        'value': tx.value + ' Wei'
+      }
+
+      const txOrigin = {
+        'origin': tx.from
+      }
+      
+      return {
+        block: blockContext,
+        msg,
+        tx: txOrigin
+      }
+    } else {
+      return {
+        block: null,
+        msg: null,
+        tx: null
+      }
+    }
   }
 }

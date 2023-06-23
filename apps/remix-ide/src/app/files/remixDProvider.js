@@ -15,9 +15,9 @@ module.exports = class RemixDProvider extends FileProvider {
 
   _registerEvent () {
     var remixdEvents = ['connecting', 'connected', 'errored', 'closed']
-    remixdEvents.forEach((value) => {
-      this._appManager.on('remixd', value, (event) => {
-        this.event.emit(value, event)
+    remixdEvents.forEach((event) => {
+      this._appManager.on('remixd', event, (value) => {
+        this.event.emit(event, value)
       })
     })
 
@@ -41,8 +41,18 @@ module.exports = class RemixDProvider extends FileProvider {
       this.event.emit('fileRenamed', oldPath, newPath)
     })
 
-    this._appManager.on('remixd', 'rootFolderChanged', () => {
-      this.event.emit('rootFolderChanged')
+    this._appManager.on('remixd', 'rootFolderChanged', (path) => {
+      this.event.emit('rootFolderChanged', path)
+    })
+
+    this._appManager.on('remixd', 'removed', (path) => {
+      this.event.emit('fileRemoved', path)
+    })
+
+    this._appManager.on('remixd', 'changed', (path) => {
+      this.get(path, (_error, content) => {
+        this.event.emit('fileExternallyChanged', path, content)
+      })
     })
   }
 
@@ -57,7 +67,7 @@ module.exports = class RemixDProvider extends FileProvider {
   }
 
   preInit () {
-    this.event.emit('loading')
+    this.event.emit('loadingLocalhost')
   }
 
   init (cb) {
@@ -66,6 +76,7 @@ module.exports = class RemixDProvider extends FileProvider {
       .then((result) => {
         this._isReady = true
         this._readOnlyMode = result
+        this.event.emit('readOnlyModeChanged', result)
         this._registerEvent()
         this.event.emit('connected')
         cb && cb()
@@ -87,20 +98,19 @@ module.exports = class RemixDProvider extends FileProvider {
       })
   }
 
-  get (path, cb) {
+  async get (path, cb) {
     if (!this._isReady) return cb && cb('provider not ready')
     var unprefixedpath = this.removePrefix(path)
-    this._appManager.call('remixd', 'get', { path: unprefixedpath })
-      .then((file) => {
-        this.filesContent[path] = file.content
-        if (file.readonly) { this._readOnlyFiles[path] = 1 }
-        cb(null, file.content)
-      }).catch((error) => {
-        if (error) console.log(error)
-        // display the last known content.
-        // TODO should perhaps better warn the user that the file is not synced.
-        return cb(null, this.filesContent[path])
-      })
+    try{
+      const file = await this._appManager.call('remixd', 'get', { path: unprefixedpath })
+      this.filesContent[path] = file.content
+      if (file.readonly) { this._readOnlyFiles[path] = 1 }
+      if(cb) cb(null, file.content)
+      return file.content
+    } catch(error) {
+      if (error) console.log(error)
+      if(cb) return cb(null, this.filesContent[path])
+    }
   }
 
   async set (path, content, cb) {
@@ -177,9 +187,7 @@ module.exports = class RemixDProvider extends FileProvider {
   }
 
   resolveDirectory (path, callback) {
-    var self = this
     if (path[0] === '/') path = path.substring(1)
-    if (!path) return callback(null, { [self.type]: { } })
     const unprefixedpath = this.removePrefix(path)
 
     if (!this._isReady) return callback && callback('provider not ready')

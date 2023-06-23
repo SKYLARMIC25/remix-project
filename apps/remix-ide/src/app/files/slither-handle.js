@@ -8,11 +8,20 @@ const profile = {
   methods: ['analyse'],
   description: 'Using Remixd daemon, run slither static analysis',
   kind: 'other',
-  version: packageJson.version
+  version: packageJson.version,
+  documentation: 'https://remix-ide.readthedocs.io/en/latest/slither.html'
 }
 
 export class SlitherHandle extends WebsocketPlugin {
   constructor () {
     super(profile)
+  }
+
+  callPluginMethod(key, payload = []) {
+    if (this.socket.readyState !== this.socket.OPEN) {
+      console.log(`${this.profile.name} connection is not opened.`)
+      return false
+    }
+    return super.callPluginMethod(key, payload)
   }
 }

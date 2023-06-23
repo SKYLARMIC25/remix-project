@@ -1,7 +1,6 @@
 'use strict'
 import { add, toBN, extractHexValue } from './util'
 import { util } from '@remix-project/remix-lib'
-import { BN } from 'ethereumjs-util'
 import { RefType } from './RefType'
 const sha3256 = util.sha3_256
 
@@ -48,9 +47,9 @@ export class ArrayType extends RefType {
       size = toBN('0x' + slotValue)
       currentLocation.slot = sha3256(location.slot)
     } else {
-      size = new BN(this.arraySize)
+      size = toBN(this.arraySize)
     }
-    var k = toBN(0)
+    const k = toBN(0)
     for (; k.lt(size) && k.ltn(300); k.iaddn(1)) {
       try {
         ret.push(await this.underlyingType.decodeFromStorage(currentLocation, storageResolver))
@@ -92,8 +91,8 @@ export class ArrayType extends RefType {
     if (skip) offset = offset + (32 * skip)
     let limit = length - skip
     if (limit > 10) limit = 10
-    for (var k = 0; k < limit; k++) {
-      var contentOffset = offset
+    for (let k = 0; k < limit; k++) {
+      const contentOffset = offset
       ret.push(this.underlyingType.decodeFromMemory(contentOffset, memory))
       offset += 32
     }

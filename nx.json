@@ -1,5 +1,4 @@
 {
-  "npmScope": "remix-project",
   "implicitDependencies": {
     "workspace.json": "*",
     "package.json": {
@@ -8,132 +7,56 @@
     },
     "tsconfig.base.json": "*",
     "tslint.json": "*",
-    ".eslintrc": "*",
+    ".eslintrc.json": "*",
     "nx.json": "*"
   },
   "tasksRunnerOptions": {
     "default": {
-      "runner": "@nrwl/workspace/tasks-runners/default",
+      "runner": "nx/tasks-runners/default",
       "options": {
-        "cacheableOperations": ["build", "lint", "test", "e2e"]
+        "cacheableOperations": [
+          "build"
+        ]
       }
     }
   },
-  "projects": {
-    "remix-lib": {
-      "tags": []
-    },
-    "remix-astwalker": {
-      "tags": [],
-      "implicitDependencies": ["remix-lib"]
-    },
-    "remix-analyzer": {
-      "tags": [],
-      "implicitDependencies": ["remix-astwalker", "remix-lib"]
-    },
-    "remix-debug": {
-      "tags": [],
-      "implicitDependencies": ["remix-astwalker", "remix-lib"]
-    },
-    "remix-simulator": {
-      "tags": [],
-      "implicitDependencies": ["remix-lib"]
-    },
-    "remix-solidity": {
-      "tags": [],
-      "implicitDependencies": ["remix-lib"]
-    },
-    "remix-tests": {
-      "tags": [],
-      "implicitDependencies": ["remix-lib", "remix-simulator", "remix-solidity"]
-    },
-    "remix-url-resolver": {
-      "tags": []
-    },
-    "remix-ide": {
-      "tags": [],
-      "implicitDependencies": [
-        "remix-analyzer",
-        "remix-debug",
-        "remix-lib",
-        "remix-simulator",
-        "remix-solidity",
-        "remix-tests",
-        "remix-astwalker",
-        "remix-url-resolver"
-      ]
-    },
-    "remix-ide-e2e": {
-      "tags": [],
-      "implicitDependencies": ["remix-ide"]
-    },
-    "remixd": {
-      "tags": []
-    },
-    "remix-ui-tree-view": {
-      "tags": []
-    },
-    "remix-ui-debugger-ui": {
-      "tags": []
-    },
-    "remix-ui-utils": {
-      "tags": []
-    },
-    "remix-ui-clipboard": {
-      "tags": []
-    },
-    "remix-ui-modal-dialog": {
-      "tags": []
-    },
-    "remix-ui-toaster": {
-      "tags": []
-    },
-    "remix-ui-file-explorer": {
-      "tags": []
-    },
-    "debugger": {
-      "tags": []
-    },
-    "remix-ui-workspace": {
-      "tags": []
-    },
-    "remix-ui-settings": {
-      "tags": []
-    },
-    "remix-ui-static-analyser": {
-      "tags": []
-    },
-    "remix-ui-checkbox": {
-      "tags": []
-    },
-    "remix-ui-plugin-manager": {
-      "tags": []
-    },
-    "remix-core-plugin": {
-      "tags": []
-    },
-    "remix-ui-solidity-compiler": {
-      "tags": []
-    },
-    "remix-ui-publish-to-storage": {
-      "tags": []
-    },
-    "remix-ui-renderer": {
-      "tags": []
-    },
-    "solidity-compiler": {
-      "tags": []
-    },
-    "remix-ide-e2e-src-local-plugin": {
-      "tags": []
-    }
-  },
+  "targetDefaults": {},
+  "defaultBase": "master",
   "targetDependencies": {
     "build": [
       {
         "target": "build",
         "projects": "dependencies"
       }
+    ],
+    "serve": [
+      {
+        "target": "build",
+        "projects": "dependencies"
+      }
+    ],
+    "test": [
+      {
+        "target": "build",
+        "projects": "dependencies"
+      }
     ]
+  },
+  "defaultProject": "remix-ide",
+  "generators": {
+    "@nrwl/react": {
+      "application": {
+        "style": "css",
+        "linter": "eslint",
+        "babel": true
+      },
+      "component": {
+        "style": "css"
+      },
+      "library": {
+        "style": "css",
+        "linter": "eslint"
+      }
+    }
   }
 }

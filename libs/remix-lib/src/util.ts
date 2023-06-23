@@ -1,5 +1,6 @@
 'use strict'
-import { BN, bufferToHex, keccak, setLengthLeft, toBuffer, addHexPrefix } from 'ethereumjs-util'
+import { hash } from '@remix-project/remix-lib'
+import { bufferToHex, setLengthLeft, toBuffer, addHexPrefix } from '@ethereumjs/util'
 import stringSimilarity from 'string-similarity'
 
 /*
@@ -35,14 +36,22 @@ export function hexToIntArray (hexString) {
 export function hexListFromBNs (bnList) {
   const ret = []
   for (const k in bnList) {
-    const v = bnList[k]
-    if (BN.isBN(v)) {
-      ret.push('0x' + v.toString('hex', 64))
-    } else {
-      ret.push('0x' + (new BN(v)).toString('hex', 64)) // TEMP FIX TO REMOVE ONCE https://github.com/ethereumjs/ethereumjs-vm/pull/293 is released
-    }
+    const v = bnList[k].toString(16)
+    ret.push('0x' + v.padStart(64, '0'))
   }
   return ret
+}
+
+export function toHexPaddedString(v: bigint | string): string {
+  if (v) {
+    if (typeof v === 'string') {
+      return v.startsWith('0x') ? v : '0x' + v
+    } else {
+      return '0x' + v.toString(16).padStart(64, '0')
+    }
+  }
+  else
+    return '0x' + '0'.padStart(64, '0')
 }
 
 /*
@@ -144,7 +153,7 @@ export function buildCallPath (index, rootCall) {
 // eslint-disable-next-line camelcase
 export function sha3_256 (value) {
   value = toBuffer(addHexPrefix(value))
-  const retInBuffer: Buffer = keccak(setLengthLeft(value, 32))
+  const retInBuffer: Buffer = hash.keccak(setLengthLeft(value, 32))
   return bufferToHex(retInBuffer)
 }
 
@@ -184,6 +193,15 @@ export function cborEncodedValueExtraction () {
   return /64697066735822([0-9a-f]{68})64736f6c6343([0-9a-f]{6})0033$/
 }
 
+/**
+  * return a regex which extract the input parameters from the bytecode
+  *
+  * @return {RegEx}
+  */
+export function inputParametersExtraction () {
+  return /64697066735822[0-9a-f]{68}64736f6c6343[0-9a-f]{6}0033(.*)$/
+}
+
 export function extractcborMetadata (value) {
   return value.replace(cborEncodedValueExtraction(), '')
 }
@@ -193,6 +211,18 @@ export function extractSwarmHash (value) {
   value = value.replace(swarmHashExtractionPOC31(), '')
   value = value.replace(swarmHashExtractionPOC32(), '')
   return value
+}
+
+export function extractinputParameters (value) {
+  return value.replace(inputParametersExtraction(), '')
+}
+
+export function getinputParameters (value) {
+  const regex = value.match(inputParametersExtraction())
+  if (regex && regex[1]) {
+    return regex[1]
+  } else
+      return ''
 }
 
 /**
@@ -218,14 +248,24 @@ export function compareByteCode (code1, code2) {
     code2 = replaceLibReference(code2, pos)
     code1 = replaceLibReference(code1, pos)
   }
+
+  code1 = removeImmutableReference(code1, code2)
+  code1 = extractinputParameters(code1)  
   code1 = extractSwarmHash(code1)
   code1 = extractcborMetadata(code1)
+  code2 = extractinputParameters(code2)
   code2 = extractSwarmHash(code2)
   code2 = extractcborMetadata(code2)
 
   if (code1 && code2) {
+    if (code1.length !== code2.length) {
+      // if the length isn't the same, we have an issue with extracting the metadata hash.
+      const minLength = code1.length > code2.length ? code2.length: code1.length
+      code1 = code1.substr(0, minLength - 10)
+      code2 = code2.substr(0, minLength - 10) 
+    }
     const compare = stringSimilarity.compareTwoStrings(code1, code2)
-    return compare > 0.93
+    return compare == 1
   }
 
   return false
@@ -251,6 +291,27 @@ export function escapeRegExp (str) {
 
 function replaceLibReference (code, pos) {
   return code.substring(0, pos) + '0000000000000000000000000000000000000000' + code.substring(pos + 40)
+}
+
+function removeByIndex (code, index, length, emptyRef) {
+  if (!code) return code
+  return code.slice(0, index) + emptyRef + code.slice(index + length)
+}
+
+function removeImmutableReference (code1, code2) {
+  try {
+    const refOccurence = code2.match(/7f0000000000000000000000000000000000000000000000000000000000000000/g)
+    if (!refOccurence) return code1
+    let offset = 0
+    refOccurence.map((value) => {
+      offset = code2.indexOf(value, offset)
+      code1 = removeByIndex(code1, offset, value.length, '7f0000000000000000000000000000000000000000000000000000000000000000')
+      offset = offset + 1
+    })
+  } catch (e) {
+    console.log('error removeImmutableReference', e)
+  }
+  return code1
 }
 
 function findCallInternal (index, rootCall, callsPath) {

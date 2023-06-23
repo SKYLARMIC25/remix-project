@@ -21,14 +21,14 @@ module.exports = {
     let addressRef: string
     browser.verifyContracts(['test'])
       .clickLaunchIcon('udapp')
+      .click('#selectExEnv')
       .selectContract('test')
       .createContract('')
       .getAddressAtPosition(0, (address) => {
         console.log('testAutoDeployLib ' + address)
         addressRef = address
       })
-      .waitForElementPresent('.instance:nth-of-type(2)')
-      .click('.instance:nth-of-type(2) > div > button')
+      .clickInstance(0)
       .perform((done) => {
         browser.testConstantFunction(addressRef, 'get - call', null, '0:\nuint256: 45').perform(() => {
           done()
@@ -37,13 +37,12 @@ module.exports = {
   },
 
   'Test Manual Deploy Lib': function (browser: NightwatchBrowser) {
-    console.log('testManualDeployLib')
     browser.click('*[data-id="deployAndRunClearInstances"]')
       .pause(5000)
       .clickLaunchIcon('settings')
       .click('*[data-id="settingsTabGenerateContractMetadataLabel"]')
       .clickLaunchIcon('solidity')
-      .click('#compileTabView button[title="Compile"]') // that should generate the JSON artefact
+      .click('#compileTabView button[data-id="compilerContainerCompileBtn"]') // that should generate the JSON artefact
       .clickLaunchIcon('udapp')
       .verifyContracts(['test'])
       .clickLaunchIcon('udapp')
@@ -77,6 +76,7 @@ function checkDeployShouldFail (browser: NightwatchBrowser, callback: VoidFuncti
     .clickLaunchIcon('udapp')
     .selectContract('test') // deploy lib
     .createContract('')
+    .pause(2000)
     .getText('div[class^="terminal"]', (value) => {
       console.log('value: ', value)
     })
@@ -103,8 +103,7 @@ function checkDeployShouldSucceed (browser: NightwatchBrowser, address: string, 
     .getAddressAtPosition(1, (address) => {
       addressRef = address
     })
-    .waitForElementPresent('.instance:nth-of-type(3)')
-    .click('.instance:nth-of-type(3) > div > button')
+    .clickInstance(1)
     .perform(() => {
       browser
         .testConstantFunction(addressRef, 'get - call', null, '0:\nuint256: 45')

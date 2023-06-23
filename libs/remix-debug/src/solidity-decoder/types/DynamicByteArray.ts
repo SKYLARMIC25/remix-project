@@ -1,7 +1,7 @@
 'use strict'
 import { extractHexValue, readFromStorage } from './util'
 import { util } from '@remix-project/remix-lib'
-import { BN } from 'ethereumjs-util'
+import { BN } from 'bn.js'
 import { RefType } from './RefType'
 const sha3256 = util.sha3_256
 
@@ -42,7 +42,7 @@ export class DynamicByteArray extends RefType {
       }
       return { value: '0x' + ret.replace(/(00)+$/, ''), length: '0x' + length.toString(16), type: this.typeName }
     } else {
-      var size = parseInt(value.substr(value.length - 2, 2), 16) / 2
+      const size = parseInt(value.substr(value.length - 2, 2), 16) / 2
       return { value: '0x' + value.substr(0, size * 2), length: '0x' + size.toString(16), type: this.typeName }
     }
   }

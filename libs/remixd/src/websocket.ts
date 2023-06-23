@@ -6,8 +6,15 @@ import { createClient } from '@remixproject/plugin-ws'
 export default class WebSocket {
   server: http.Server
   wsServer: WS.Server
+  port: number
+  opt: WebsocketOpt
+  getclient: () => ServiceClient
 
-  constructor (public port: number, public opt: WebsocketOpt, public getclient: () => ServiceClient) {} //eslint-disable-line
+  constructor (port: number, opt: WebsocketOpt, getclient: () => ServiceClient) {
+    this.port = port
+    this.opt = opt
+    this.getclient = getclient
+  } //eslint-disable-line
 
   start (callback?: (ws: WS, client: ServiceClient, error?: Error) => void): void {
     this.server = http.createServer((request, response) => {
@@ -20,7 +27,9 @@ export default class WebSocket {
       65520: 'remixd',
       65521: 'git',
       65522: 'hardhat',
-      65523: 'slither'
+      65523: 'slither',
+      65524: 'truffle',
+      65525: 'foundry'
     }
 
     this.server.on('error', (error: Error) => {
@@ -42,11 +51,11 @@ export default class WebSocket {
         done(true)
       }
     })
-    this.wsServer.on('connection', (ws) => {
+    this.wsServer.on('connection', (ws, socket) => {
       const client = this.getclient()
 
       createClient(ws, client as any)
-      if (callback) callback(ws, client)
+      if (callback) callback(ws as any, client)
     })
   }
 
@@ -66,7 +75,7 @@ function originIsAllowed (origin: string, self: WebSocket): boolean {
   } else {
     try {
       // eslint-disable-next-line
-      const origins = require('./origins.json')
+      const origins = require('../origins.json')
       const domain = getDomain(origin)
       const { data } = origins
 

@@ -3,6 +3,7 @@
 import Web3 from 'web3'
 import { execution } from '@remix-project/remix-lib'
 import EventManager from '../lib/events'
+const _paq = window._paq = window._paq || []
 
 let web3
 
@@ -19,11 +20,11 @@ if (typeof window !== 'undefined' && typeof window.ethereum !== 'undefined') {
 export class ExecutionContext {
   constructor () {
     this.event = new EventManager()
-    this.executionContext = null
+    this.executionContext = 'vm-shanghai'
     this.lastBlock = null
     this.blockGasLimitDefault = 4300000
     this.blockGasLimit = this.blockGasLimitDefault
-    this.currentFork = 'london'
+    this.currentFork = 'shanghai'
     this.mainNetGenesisHash = '0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3'
     this.customNetWorks = {}
     this.blocks = {}
@@ -33,21 +34,20 @@ export class ExecutionContext {
   }
 
   init (config) {
-    if (config.get('settings/always-use-vm')) {
-      this.executionContext = 'vm'
-    } else {
-      this.executionContext = injectedProvider ? 'injected' : 'vm'
-      if (this.executionContext === 'injected') this.askPermission()
-    }
-  }
-
-  askPermission () {
-    // metamask
-    if (ethereum && typeof ethereum.enable === 'function') ethereum.enable()
-  }
+    this.executionContext = 'vm-shanghai'
+    this.event.trigger('contextChanged', [this.executionContext])
+  }  
 
   getProvider () {
     return this.executionContext
+  }
+
+  getProviderObject () {
+    return this.customNetWorks[this.executionContext]
+  }
+
+  getSelectedAddress () {
+    return injectedProvider ? injectedProvider.selectedAddress : null
   }
 
   getCurrentFork () {
@@ -55,7 +55,7 @@ export class ExecutionContext {
   }
 
   isVM () {
-    return this.executionContext === 'vm'
+    return this.executionContext.startsWith('vm')
   }
 
   setWeb3 (context, web3) {
@@ -71,6 +71,9 @@ export class ExecutionContext {
     if (this.isVM()) {
       callback(null, { id: '-', name: 'VM' })
     } else {
+      if (!web3.currentProvider) {
+        return callback('No provider set')
+      }
       web3.eth.net.getId((err, id) => {
         let name = null
         if (err) name = 'Unknown'
@@ -80,6 +83,7 @@ export class ExecutionContext {
         else if (id === 4) name = 'Rinkeby'
         else if (id === 5) name = 'Goerli'
         else if (id === 42) name = 'Kovan'
+        else if (id === 11155111) name = 'Sepolia'
         else name = 'Custom'
 
         if (id === '1') {
@@ -97,7 +101,7 @@ export class ExecutionContext {
 
   removeProvider (name) {
     if (name && this.customNetWorks[name]) {
-      if (this.executionContext === name) this.setContext('vm', null, null, null)
+      if (this.executionContext === name) this.setContext('vm-merge', null, null, null)
       delete this.customNetWorks[name]
       this.event.trigger('removeProvider', [name])
     }
@@ -113,51 +117,28 @@ export class ExecutionContext {
   internalWeb3 () {
     return web3
   }
-
-  blankWeb3 () {
-    return new Web3()
-  }
-
+  
   setContext (context, endPointUrl, confirmCb, infoCb) {
     this.executionContext = context
     this.executionContextChange(context, endPointUrl, confirmCb, infoCb, null)
   }
 
   async executionContextChange (value, endPointUrl, confirmCb, infoCb, cb) {
+    _paq.push(['trackEvent', 'udapp', 'providerChanged', value.context])
     const context = value.context
-    if (!cb) cb = () => {}
-    if (!confirmCb) confirmCb = () => {}
-    if (!infoCb) infoCb = () => {}
-    if (context === 'vm') {
-      this.executionContext = context
-      this.currentFork = value.fork
-      this.event.trigger('contextChanged', ['vm'])
-      return cb()
-    }
-
-    if (context === 'injected') {
-      if (injectedProvider === undefined) {
-        infoCb('No injected Web3 provider found. Make sure your provider (e.g. MetaMask) is active and running (when recently activated you may have to reload the page).')
-        return cb()
-      } else {
-        this.askPermission()
-        this.executionContext = context
-        web3.setProvider(injectedProvider)
-        await this._updateChainContext()
-        this.event.trigger('contextChanged', ['injected'])
-        return cb()
-      }
-    }
-
-    if (context === 'web3') {
-      confirmCb(cb)
-    }
+    if (!cb) cb = () => { /* Do nothing. */ }
+    if (!confirmCb) confirmCb = () => { /* Do nothing. */ }
+    if (!infoCb) infoCb = () => { /* Do nothing. */ }    
     if (this.customNetWorks[context]) {
-      var network = this.customNetWorks[context]
-      this.setProviderFromEndpoint(network.provider, { context: network.name }, (error) => {
-        if (error) infoCb(error)
-        cb()
-      })
+      var network = this.customNetWorks[context]      
+      await network.init()
+      this.currentFork = network.fork
+      this.executionContext = context
+      // injected
+      web3.setProvider(network.provider)
+      await this._updateChainContext()
+      this.event.trigger('contextChanged', [context])
+      cb()
     }
   }
 
@@ -171,7 +152,7 @@ export class ExecutionContext {
   }
 
   async _updateChainContext () {
-    if (this.getProvider() !== 'vm') {
+    if (!this.isVM()) {
       try {
         const block = await web3.eth.getBlock('latest')
         // we can't use the blockGasLimit cause the next blocks could have a lower limit : https://github.com/ethereum/remix/issues/506
@@ -180,7 +161,7 @@ export class ExecutionContext {
         try {
           this.currentFork = execution.forkAt(await web3.eth.net.getId(), block.number)
         } catch (e) {
-          this.currentFork = 'london'
+          this.currentFork = 'merge'
           console.log(`unable to detect fork, defaulting to ${this.currentFork}..`)
           console.error(e)
         }
@@ -197,35 +178,12 @@ export class ExecutionContext {
     }, 15000)
   }
 
-  // TODO: remove this when this function is moved
-
-  setProviderFromEndpoint (endpoint, value, cb) {
-    const oldProvider = web3.currentProvider
-    const context = value.context
-
-    web3.setProvider(endpoint)
-    web3.eth.net.isListening((err, isConnected) => {
-      if (!err && isConnected === true) {
-        this.executionContext = context
-        this._updateChainContext()
-        this.event.trigger('contextChanged', [context])
-        this.event.trigger('web3EndpointChanged')
-        cb()
-      } else if (isConnected === 'canceled') {
-        web3.setProvider(oldProvider)
-        cb()
-      } else {
-        web3.setProvider(oldProvider)
-        cb('Not possible to connect to the Web3 provider. Make sure the provider is running, a connection is open (via IPC or RPC) or that the provider plugin is properly configured.')
-      }
-    })
-  }
-
   txDetailsLink (network, hash) {
     const transactionDetailsLinks = {
       Main: 'https://www.etherscan.io/tx/',
       Rinkeby: 'https://rinkeby.etherscan.io/tx/',
       Ropsten: 'https://ropsten.etherscan.io/tx/',
+      Sepolia: 'https://sepolia.etherscan.io/tx/',
       Kovan: 'https://kovan.etherscan.io/tx/',
       Goerli: 'https://goerli.etherscan.io/tx/'
     }

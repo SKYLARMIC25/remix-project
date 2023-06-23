@@ -3,7 +3,8 @@ import { ethers } from 'ethers'
 import { encodeParams as encodeParamsHelper, encodeFunctionId, makeFullTypeDefinition } from './txHelper'
 import { eachOfSeries } from 'async'
 import { linkBytecode as linkBytecodeSolc } from 'solc/linker'
-import { isValidAddress, addHexPrefix } from 'ethereumjs-util'
+import { isValidAddress, addHexPrefix } from '@ethereumjs/util'
+import fromExponential from 'from-exponential';
 
 /**
   * build the transaction data
@@ -35,38 +36,59 @@ export function encodeData (funABI, values, contractbyteCode) {
 * @param {Object} funAbi    - abi definition of the function to call. null if building data for the ctor.
 * @param {Function} callback    - callback
 */
-export function encodeParams (params, funAbi, callback) {
-  let data: Buffer | string = ''
-  let dataHex: string = ''
-  let funArgs
-  if (params.indexOf('raw:0x') === 0) {
-    // in that case we consider that the input is already encoded and *does not* contain the method signature
-    dataHex = params.replace('raw:0x', '')
-    data = Buffer.from(dataHex, 'hex')
-  } else {
-    try {
-      params = params.replace(/(^|,\s+|,)(\d+)(\s+,|,|$)/g, '$1"$2"$3') // replace non quoted number by quoted number
-      params = params.replace(/(^|,\s+|,)(0[xX][0-9a-fA-F]+)(\s+,|,|$)/g, '$1"$2"$3') // replace non quoted hex string by quoted hex string
-      funArgs = JSON.parse('[' + params + ']')
-    } catch (e) {
-      return callback('Error encoding arguments: ' + e)
-    }
-    if (funArgs.length > 0) {
+export function encodeParams (params, funAbi, callback?) {
+  return new Promise((resolve, reject) => {
+    let data: Buffer | string = ''
+    let dataHex = ''
+    let funArgs = []
+    if (Array.isArray(params)) {
+      funArgs = params
+      if (funArgs.length > 0) {
+        try {
+          data = encodeParamsHelper(funAbi, funArgs)
+          dataHex = data.toString()
+        } catch (e) {
+          reject('Error encoding arguments: ' + e)
+          return callback && callback('Error encoding arguments: ' + e)
+        }
+      }
+      if (data.slice(0, 9) === 'undefined') {
+        dataHex = data.slice(9)
+      }
+      if (data.slice(0, 2) === '0x') {
+        dataHex = data.slice(2)
+      }
+    } else if (params.indexOf('raw:0x') === 0) {
+      // in that case we consider that the input is already encoded and *does not* contain the method signature
+      dataHex = params.replace('raw:0x', '')
+      data = Buffer.from(dataHex, 'hex')
+    } else {
       try {
-        data = encodeParamsHelper(funAbi, funArgs)
-        dataHex = data.toString()
+        funArgs = parseFunctionParams(params)
       } catch (e) {
-        return callback('Error encoding arguments: ' + e)
+        reject('Error encoding arguments: ' + e)
+        return callback && callback('Error encoding arguments: ' + e)
+      }
+      try {
+        if (funArgs.length > 0) {
+          data = encodeParamsHelper(funAbi, funArgs)
+          dataHex = data.toString()
+        }
+      } catch (e) {
+        reject('Error encoding arguments: ' + e)
+        return callback && callback('Error encoding arguments: ' + e)
+      }
+      if (data.slice(0, 9) === 'undefined') {
+        dataHex = data.slice(9)
+      }
+      if (data.slice(0, 2) === '0x') {
+        dataHex = data.slice(2)
       }
     }
-    if (data.slice(0, 9) === 'undefined') {
-      dataHex = data.slice(9)
-    }
-    if (data.slice(0, 2) === '0x') {
-      dataHex = data.slice(2)
-    }
-  }
-  callback(null, { data: data, dataHex: dataHex, funArgs: funArgs })
+    const result = { data: data, dataHex: dataHex, funArgs: funArgs }
+    callback && callback(null, result)
+    resolve(result)
+  })  
 }
 
 /**
@@ -93,10 +115,25 @@ export function encodeFunctionCall (params, funAbi, callback) {
 * @param {Object} linkReferences    - given by the compiler, contains the proper linkReferences
 * @param {Function} callback    - callback
 */
-export function encodeConstructorCallAndLinkLibraries (contract, params, funAbi, linkLibraries, linkReferences, callback) {
+export function encodeConstructorCallAndLinkLibraries (contract, params, funAbi, linkLibrariesAddresses, linkReferences, callback) {
   encodeParams(params, funAbi, (error, encodedParam) => {
     if (error) return callback(error)
-    let bytecodeToDeploy = contract.evm.bytecode.object
+    linkLibraries(contract, linkLibrariesAddresses, linkReferences, (error, bytecodeToDeploy) => {
+      callback(error, { dataHex: bytecodeToDeploy + encodedParam.dataHex, funAbi, funArgs: encodedParam.funArgs, contractBytecode: contract.evm.bytecode.object })
+    })
+  })
+}
+
+/**
+* link with provided libraries if needed
+*
+* @param {Object} contract    - input paramater of the function to call
+* @param {Object} linkLibraries    - contains {linkReferences} object which list all the addresses to be linked
+* @param {Object} linkReferences    - given by the compiler, contains the proper linkReferences
+* @param {Function} callback    - callback
+*/
+export function linkLibraries (contract, linkLibraries, linkReferences, callback) {
+  let bytecodeToDeploy = contract.evm.bytecode.object
     if (bytecodeToDeploy.indexOf('_') >= 0) {
       if (linkLibraries && linkReferences) {
         for (const libFile in linkLibraries) {
@@ -111,8 +148,7 @@ export function encodeConstructorCallAndLinkLibraries (contract, params, funAbi,
     if (bytecodeToDeploy.indexOf('_') >= 0) {
       return callback('Failed to link some libraries')
     }
-    return callback(null, { dataHex: bytecodeToDeploy + encodedParam.dataHex, funAbi, funArgs: encodedParam.funArgs, contractBytecode: contract.evm.bytecode.object })
-  })
+    return callback(null, bytecodeToDeploy)
 }
 
 /**
@@ -167,7 +203,7 @@ export function encodeConstructorCallAndDeployLibraries (contractName, contract,
 export function buildData (contractName, contract, contracts, isConstructor, funAbi, params, callback, callbackStep, callbackDeployLibrary) {
   let funArgs = []
   let data: Buffer | string = ''
-  let dataHex: string = ''
+  let dataHex = ''
 
   if (params.indexOf('raw:0x') === 0) {
     // in that case we consider that the input is already encoded and *does not* contain the method signature
@@ -237,6 +273,7 @@ export function linkBytecodeStandard (contract, contracts, callback, callbackSte
           cbLibDeployed()
         }, callbackStep, callbackDeployLibrary)
       } else {
+        //@ts-ignore
         cbLibDeployed('Cannot find compilation data of library ' + libName)
       }
     }, (error) => {
@@ -382,7 +419,7 @@ export function decodeResponse (response, fnabi) {
 }
 
 export function parseFunctionParams (params) {
-  let args = []
+  const args = []
   // Check if parameter string starts with array or string
   let startIndex = isArrayOrStringStart(params, 0) ? -1 : 0
   for (let i = 0; i < params.length; i++) {
@@ -393,7 +430,7 @@ export function parseFunctionParams (params) {
       // look for closing quote. On success, push the complete string in arguments list
       for (let j = i + 1; !endQuoteIndex; j++) {
         if (params.charAt(j) === '"') {
-          args.push(params.substring(i + 1, j))
+          args.push(normalizeParam(params.substring(i + 1, j)))
           endQuoteIndex = true
           i = j
         }
@@ -417,31 +454,54 @@ export function parseFunctionParams (params) {
         if (bracketCount !== 0 && j === params.length - 1) {
           throw new Error('invalid tuple params')
         }
+        if (bracketCount === 0) break
       }
-      // If bracketCount = 0, it means complete array/nested array parsed, push it to the arguments list
-      args.push(JSON.parse(params.substring(i, j)))
+      args.push(parseFunctionParams(params.substring(i + 1, j)))
       i = j - 1
-    } else if (params.charAt(i) === ',') {
-      // if startIndex >= 0, it means a parameter was being parsed, it can be first or other parameter
+    } else if (params.charAt(i) === ',' || i === params.length - 1) { // , or end of string
+       // if startIndex >= 0, it means a parameter was being parsed, it can be first or other parameter
       if (startIndex >= 0) {
-        args.push(params.substring(startIndex, i))
+        let param = params.substring(startIndex, i === params.length - 1 ? undefined : i)
+        param = normalizeParam(param)
+        args.push(param)
       }
       // Register start index of a parameter to parse
       startIndex = isArrayOrStringStart(params, i + 1) ? -1 : i + 1
-    } else if (startIndex >= 0 && i === params.length - 1) {
-      // If start index is registered and string is completed (To handle last parameter)
-      args.push(params.substring(startIndex, params.length))
     }
   }
-  args = args.map(e => {
-    if (!Array.isArray(e)) {
-      return e.trim()
-    } else {
-      return e
-    }
-  })
   return args
 }
+
+export const normalizeParam = (param) => {
+  param = param.trim()
+  if (param.startsWith('0x')) param = `${param}`
+  if (/[0-9]/g.test(param)) param = `${param}`
+
+  // fromExponential
+  if (!param.startsWith('0x')) {
+    const regSci = REGEX_SCIENTIFIC.exec(param)
+    const exponents = regSci ? regSci[2] : null
+    if (regSci && REGEX_DECIMAL.exec(exponents)) {
+      try {
+        let paramTrimmed = param.replace(/^'/g, '').replace(/'$/g, '')
+        paramTrimmed = paramTrimmed.replace(/^"/g, '').replace(/"$/g, '')
+        param = fromExponential(paramTrimmed)     
+      } catch (e) {
+        console.log(e)
+      }
+    }
+  }  
+
+  if (typeof param === 'string') {          
+    if (param === 'true') param = true
+    if (param === 'false') param = false        
+  }
+  return param
+}
+
+export const REGEX_SCIENTIFIC = /^-?(\d+\.?\d*)e\d*(\d+)$/
+
+export const REGEX_DECIMAL = /^\d*/
 
 export function isArrayOrStringStart (str, index) {
   return str.charAt(index) === '"' || str.charAt(index) === '['

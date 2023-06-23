@@ -1,53 +1,39 @@
-import { PluginClient } from "@remixproject/plugin";
-import { createClient } from "@remixproject/plugin-webview";
-import { CompilerApiMixin } from './compiler-api'
-import { ICompilerApi } from '@remix-project/remix-lib-ts'
+/* eslint-disable no-undef */
+/* eslint-disable no-unused-vars */
+import { PluginClient } from '@remixproject/plugin'
+import { createClient } from '@remixproject/plugin-webview'
+import { CompilerApiMixin } from '@remix-ui/solidity-compiler'
+import { ICompilerApi } from '@remix-project/remix-lib'
 import { CompileTabLogic } from '@remix-ui/solidity-compiler'
-
-const profile = {
-  name: 'solidity',
-  displayName: 'Solidity compiler',
-  icon: 'assets/img/solidity.webp',
-  description: 'Compile solidity contracts',
-  kind: 'compiler',
-  permission: true,
-  location: 'sidePanel',
-  documentation: 'https://remix-ide.readthedocs.io/en/latest/solidity_editor.html',
-  version: '0.0.1',
-  methods: ['getCompilationResult', 'compile', 'compileWithParameters', 'setCompilerConfig', 'compileFile' ,'getCompilerState']
-}
-
-const defaultAppParameters = {
-  hideWarnings: false,
-  autoCompile: false,
-  includeNightlies: false
-}
 
 const defaultCompilerParameters = {
   runs: '200',
   optimize: false,
-  version: 'soljson-v0.8.7+commit.e28d00a7',
+  version: 'soljson-v0.8.18+commit.87f61d96',
   evmVersion: null, // compiler default
-  language: 'Solidity'
+  language: 'Solidity',
+  useFileConfiguration: false,
+  configFilePath: "compiler_config.json"
 }
-
-export class CompilerClientApi extends CompilerApiMixin(PluginClient) implements ICompilerApi  {
+export class CompilerClientApi extends CompilerApiMixin(PluginClient) implements ICompilerApi {
   constructor () {
     super()
     createClient(this as any)
     this.compileTabLogic = new CompileTabLogic(this, this.contentImport)
     this.compiler = this.compileTabLogic.compiler
     this.compileTabLogic.init()
-    this.initCompilerApi()
+    this.initCompilerApi()    
   }
 
   getCompilerParameters () {
     const params = {
-      runs: localStorage.getItem('runs') || defaultCompilerParameters['runs'],
-      optimize: localStorage.getItem('optimize') === 'true' ? true : false,
-      version: localStorage.getItem('version') || defaultCompilerParameters['version'],
-      evmVersion: localStorage.getItem('evmVersion') || defaultCompilerParameters['evmVersion'], // default
-      language: localStorage.getItem('language') || defaultCompilerParameters['language']
+      runs: localStorage.getItem('runs') || defaultCompilerParameters.runs,
+      optimize: localStorage.getItem('optimize') === 'true',
+      version: localStorage.getItem('version') || defaultCompilerParameters.version,
+      evmVersion: localStorage.getItem('evmVersion') || defaultCompilerParameters.evmVersion, // default
+      language: localStorage.getItem('language') || defaultCompilerParameters.language,
+      useFileConfiguration: localStorage.getItem('useFileConfiguration') === 'true',
+      configFilePath: localStorage.getItem('configFilePath') || defaultCompilerParameters.configFilePath
     }
     return params
   }
@@ -58,15 +44,12 @@ export class CompilerClientApi extends CompilerApiMixin(PluginClient) implements
     }
   }
 
-  getAppParameter (name) {
-    const param = localStorage.getItem(name) || defaultAppParameters[name]
-    if (param === 'true') return true
-    if (param === 'false') return false
-    return param
+  async getAppParameter (name) {
+    return await PluginClient.call('config', 'getAppParameter', name)
   }
 
-  setAppParameter (name, value) {
-    localStorage.setItem(name, value)
+  async setAppParameter (name, value) {
+    await PluginClient.call('config', 'setAppParameter', name, value)
   }
 
   getFileManagerMode () {

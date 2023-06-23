@@ -1,3 +1,4 @@
+import { timeStamp } from 'console'
 import { EventManager } from '../eventManager'
 import { decodeState } from '../solidity-decoder/stateDecoder'
 import { StorageViewer } from '../storage/storageViewer'
@@ -11,6 +12,7 @@ export class DebuggerSolidityState {
   solidityProxy
   stateVariablesByAddresses
   tx
+  decodeTimeout
 
   constructor (tx, _stepManager, _traceManager, _codeManager, _solidityProxy) {
     this.event = new EventManager()
@@ -21,35 +23,31 @@ export class DebuggerSolidityState {
     this.solidityProxy = _solidityProxy
     this.stateVariablesByAddresses = {}
     this.tx = tx
+    this.decodeTimeout = null
   }
 
   init (index) {
-    let decodeTimeout = null
     if (index < 0) {
       return this.event.trigger('solidityStateMessage', ['invalid step index'])
     }
 
     if (this.stepManager.currentStepIndex !== index) return
-    if (!this.solidityProxy.loaded()) {
-      return this.event.trigger('solidityStateMessage', ['invalid step index'])
-    }
-
+    
     if (!this.storageResolver) {
       return
     }
-    if (decodeTimeout) {
-      window.clearTimeout(decodeTimeout)
+    if (this.decodeTimeout) {
+      window.clearTimeout(this.decodeTimeout)
     }
     this.event.trigger('solidityStateUpdating')
-    decodeTimeout = setTimeout(() => {
+    this.decodeTimeout = setTimeout(() => {
       // necessary due to some states that can crash the debugger
       try {
         this.decode(index)
       } catch (err) {
-        console.dir('====> error')
         console.dir(err)
       }
-    }, 500)
+    }, 1000)
   }
 
   reset () {

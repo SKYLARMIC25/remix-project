@@ -3,6 +3,7 @@ import { NightwatchBrowser } from 'nightwatch'
 import init from '../helpers/init'
 
 module.exports = {
+  '@disabled': true,
   before: function (browser: NightwatchBrowser, done: VoidFunction) {
     // this test suite also contribute testing https://github.com/ethereum/remix/pull/1497 and https://github.com/ethereum/remix-ide/pull/2898
     // quick explanation:
@@ -17,7 +18,7 @@ module.exports = {
     return sources
   },
 
-  'Use special functions receive/fallback - both are declared, sending data': function (browser: NightwatchBrowser) {
+  'Use special functions receive/fallback - both are declared, sending data #group1': function (browser: NightwatchBrowser) {
     browser.waitForElementVisible('#icon-panel', 10000)
       .testContracts('receiveAndFallback.sol', sources[0]['receiveAndFallback.sol'], ['CheckSpecials']) // compile
       .clickLaunchIcon('udapp')
@@ -28,16 +29,15 @@ module.exports = {
       .perform((done) => {
         browser.getAddressAtPosition(0, (address) => {
           browser.sendLowLevelTx(address, '0', '0xaa')
-            .pause(1000)
             .journalLastChildIncludes('to: CheckSpecials.(fallback)')
             .journalLastChildIncludes('value: 0 wei')
             .journalLastChildIncludes('data: 0xaa')
-            .perform(done)
+            .perform(done())
         })
       })
   },
 
-  'Use special functions receive/fallback - both are declared, failing sending data < 1 byte': function (browser: NightwatchBrowser) {
+  'Use special functions receive/fallback - both are declared, failing sending data < 1 byte #group1': function (browser: NightwatchBrowser) {
     // don't need to redeploy it, same contract
     browser.perform((done) => {
       browser.getAddressAtPosition(0, (address) => {
@@ -45,11 +45,11 @@ module.exports = {
           .pause(1000)
           .waitForElementVisible(`#instance${address} label[id="deployAndRunLLTxError"]`)
           .assert.containsText(`#instance${address} label[id="deployAndRunLLTxError"]`, 'The calldata should be a valid hexadecimal value with size of at least one byte.')
-          .perform(done)
+          .perform(done())
       })
     })
   },
-  'Use special functions receive/fallback - both are declared, failing sending data with odd number of digits': function (browser: NightwatchBrowser) {
+  'Use special functions receive/fallback - both are declared, failing sending data with odd number of digits #group1': function (browser: NightwatchBrowser) {
     // don't need to redeploy it, same contract
     browser.perform((done) => {
       browser.getAddressAtPosition(0, (address) => {
@@ -57,114 +57,108 @@ module.exports = {
           .pause(1000)
           .waitForElementVisible(`#instance${address} label[id="deployAndRunLLTxError"]`)
           .assert.containsText(`#instance${address} label[id="deployAndRunLLTxError"]`, 'The calldata should be a valid hexadecimal value.')
-          .perform(done)
+          .perform(done())
       })
     })
   },
-  'Use special functions receive/fallback - both are declared - receive called, sending wei': function (browser: NightwatchBrowser) {
+  'Use special functions receive/fallback - both are declared - receive called, sending wei #group1': function (browser: NightwatchBrowser) {
     // don't need to redeploy it, same contract
     browser.perform((done) => {
       browser.getAddressAtPosition(0, (address) => {
         browser.sendLowLevelTx(address, '1', '')
-          .pause(1000)
           .journalLastChildIncludes('to: CheckSpecials.(receive)')
           .journalLastChildIncludes('value: 1 wei')
           .journalLastChildIncludes('data: 0x')
-          .perform(done)
+          .perform(done())
       })
     })
   },
-  'Use special functions receive/fallback - both are declared - fallback should fail cause not payable, sending data and wei': function (browser: NightwatchBrowser) {
+  'Use special functions receive/fallback - both are declared - fallback should fail cause not payable, sending data and wei #group1': function (browser: NightwatchBrowser) {
     // don't need to redeploy it, same contract
     browser.perform((done) => {
       browser.getAddressAtPosition(0, (address) => {
         browser.sendLowLevelTx(address, '10', '0xaa')
-          .pause(1000)
           .journalLastChildIncludes('to CheckSpecials.(fallback) errored:')
           .journalLastChildIncludes('The called function should be payable if you send value')
-          .perform(done)
+          .perform(done())
       })
     })
   },
-  'Use special functions receive/fallback - only receive is declared, sending wei': function (browser: NightwatchBrowser) {
+  'Use special functions receive/fallback - only receive is declared, sending wei #group2': function (browser: NightwatchBrowser) {
     browser.waitForElementVisible('#icon-panel', 10000)
       .testContracts('receiveOnly.sol', sources[1]['receiveOnly.sol'], ['CheckSpecials'])
       .clickLaunchIcon('udapp')
       .selectContract('CheckSpecials')
       .createContract('')
-      .clickInstance(1)
+      .clickInstance(0)
       .perform((done) => {
-        browser.getAddressAtPosition(1, (address) => {
+        browser.getAddressAtPosition(0, (address) => {
           browser.sendLowLevelTx(address, '1', '')
-            .pause(1000)
             .journalLastChildIncludes('to: CheckSpecials.(receive)')
             .journalLastChildIncludes('value: 1 wei')
             .journalLastChildIncludes('data: 0x')
-            .perform(done)
+            .perform(done())
         })
       })
   },
-  'Use special functions receive/fallback - only receive is declared, failing, fallback is not declared, sending data': function (browser: NightwatchBrowser) {
+  'Use special functions receive/fallback - only receive is declared, failing, fallback is not declared, sending data #group2': function (browser: NightwatchBrowser) {
     // don't need to redeploy it, same contract
     browser.perform((done) => {
-      browser.getAddressAtPosition(1, (address) => {
+      browser.getAddressAtPosition(0, (address) => {
         browser.sendLowLevelTx(address, '0', '0xaa')
-          .pause(1000)
           .waitForElementVisible(`#instance${address} label[id="deployAndRunLLTxError"]`)
           .assert.containsText(`#instance${address} label[id="deployAndRunLLTxError"]`, '\'Fallback\' function is not defined')
-          .perform(done)
+          .perform(done())
       })
     })
   },
-  'Use special functions receive/fallback - only fallback declared and is payable, sending wei': function (browser: NightwatchBrowser) {
+  'Use special functions receive/fallback - only fallback declared and is payable, sending wei #group3': function (browser: NightwatchBrowser) {
     browser.waitForElementVisible('#icon-panel', 10000)
       .testContracts('fallbackOnlyPayable.sol', sources[2]['fallbackOnlyPayable.sol'], ['CheckSpecials'])
       .clickLaunchIcon('udapp')
       .selectContract('CheckSpecials')
       .createContract('')
-      .clickInstance(2)
+      .clickInstance(0)
       .perform((done) => {
-        browser.getAddressAtPosition(2, (address) => {
+        browser.getAddressAtPosition(0, (address) => {
           browser.sendLowLevelTx(address, '1', '')
-            .pause(1000)
             .journalLastChildIncludes('to: CheckSpecials.(fallback)')
             .journalLastChildIncludes('value: 1 wei')
             .journalLastChildIncludes('data: 0x')
-            .perform(done)
+            .perform(done())
         })
       })
   },
-  'Use special functions receive/fallback - only fallback is diclared and is payable, sending data and wei': function (browser: NightwatchBrowser) {
+  'Use special functions receive/fallback - only fallback is diclared and is payable, sending data and wei #group3': function (browser: NightwatchBrowser) {
     // don't need to redeploy it, same contract
     browser.perform((done) => {
-      browser.getAddressAtPosition(2, (address) => {
+      browser.getAddressAtPosition(0, (address) => {
         browser.sendLowLevelTx(address, '1', '0xaa')
-          .pause(1000)
           .journalLastChildIncludes('to: CheckSpecials.(fallback)')
           .journalLastChildIncludes('value: 1 wei')
           .journalLastChildIncludes('data: 0xaa')
-          .perform(done)
+          .perform(done())
       })
     })
   },
-  'Use special functions receive/fallback - only fallback is declared, fallback should fail cause not payable, sending wei': function (browser: NightwatchBrowser) {
+  'Use special functions receive/fallback - only fallback is declared, fallback should fail cause not payable, sending wei #group4': function (browser: NightwatchBrowser) {
     browser.waitForElementVisible('#icon-panel', 10000)
       .testContracts('fallbackOnlyNotPayable.sol', sources[3]['fallbackOnlyNotPayable.sol'], ['CheckSpecials'])
       .clickLaunchIcon('udapp')
       .selectContract('CheckSpecials')
       .createContract('')
-      .clickInstance(3)
+      .clickInstance(0)
       .perform((done) => {
-        browser.getAddressAtPosition(3, (address) => {
+        browser.getAddressAtPosition(0, (address) => {
           browser.sendLowLevelTx(address, '1', '')
             .pause(1000)
             .waitForElementVisible(`#instance${address} label[id="deployAndRunLLTxError"]`)
             .assert.containsText(`#instance${address} label[id="deployAndRunLLTxError"]`, 'should have either \'receive\' or payable \'fallback\'')
-            .perform(done)
+            .perform(done())
         })
       })
   },
-  'Use special functions receive/fallback - receive and fallback are declared, sending data and wei': function (browser: NightwatchBrowser) {
+  'Use special functions receive/fallback - receive and fallback are declared, sending data and wei #group6': function (browser: NightwatchBrowser) {
     browser.waitForElementVisible('#icon-panel', 10000)
       .testContracts('receiveAndFallbackBothPayable.sol', sources[4]['receiveAndFallbackBothPayable.sol'], ['CheckSpecials'])
       .clickLaunchIcon('udapp')
@@ -172,50 +166,50 @@ module.exports = {
       .waitForElementVisible('#value')
       .clearValue('#value')
       .setValue('#value', '0')
+      .pause(2000)
       .createContract('')
-      .clickInstance(4)
       .pause(1000)
+      .clickInstance(0).pause(1000)
       .perform((done) => {
-        browser.getAddressAtPosition(4, (address) => {
+        browser.getAddressAtPosition(0, (address) => {
           browser.sendLowLevelTx(address, '999999998765257135', '0xaa')
-            .pause(1000)
             .journalLastChildIncludes('to: CheckSpecials.(fallback)')
             .journalLastChildIncludes('value: 999999998765257135 wei')
             .journalLastChildIncludes('data: 0xaa')
-            .perform(done)
+            .perform(done())
         })
       })
   },
-  'Use special functions receive/fallback - receive and fallback are declared and payable, sending wei': function (browser: NightwatchBrowser) {
+  'Use special functions receive/fallback - receive and fallback are declared and payable, sending wei #group6': function (browser: NightwatchBrowser) {
     browser.perform((done) => {
-      browser.getAddressAtPosition(4, (address) => {
+      browser.getAddressAtPosition(0, (address) => {
         browser.sendLowLevelTx(address, '1', '')
           .pause(1000)
           .journalLastChildIncludes('to: CheckSpecials.(receive)')
           .journalLastChildIncludes('value: 1 wei')
           .journalLastChildIncludes('data: 0x')
-          .perform(done)
+          .perform(done())
       })
     })
   },
-  'Use special functions receive/fallback - receive and fallback are not declared, sending nothing': function (browser: NightwatchBrowser) {
+  'Use special functions receive/fallback - receive and fallback are not declared, sending nothing #group5': function (browser: NightwatchBrowser) {
     browser.waitForElementVisible('#icon-panel', 10000)
       .testContracts('notSpecial.sol', sources[5]['notSpecial.sol'], ['CheckSpecials'])
       .clickLaunchIcon('udapp')
       .selectContract('CheckSpecials')
       .waitForElementVisible('#value')
       .clearValue('#value')
-      .setValue('#value', '0')
+      .setValue('#value', '0').pause(2000)
       .createContract('')
-      .clickInstance(5)
+      .clickInstance(0)
       .pause(1000)
       .perform((done) => {
-        browser.getAddressAtPosition(5, (address) => {
+        browser.getAddressAtPosition(0, (address) => {
           browser.sendLowLevelTx(address, '0', '')
             .pause(1000)
             .waitForElementVisible(`#instance${address} label[id="deployAndRunLLTxError"]`)
             .assert.containsText(`#instance${address} label[id="deployAndRunLLTxError"]`, 'Both \'receive\' and \'fallback\' functions are not defined')
-            .perform(done)
+            .perform(done())
         })
       })
       .end()

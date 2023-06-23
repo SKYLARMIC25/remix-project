@@ -1,58 +1,70 @@
 import React, { useState } from 'react'
 import copy from 'copy-to-clipboard'
-import { OverlayTrigger, Tooltip } from 'react-bootstrap'
 import { Placement } from 'react-bootstrap/esm/Overlay'
 
 import './copy-to-clipboard.css'
+import { CustomTooltip } from '@remix-ui/helper'
 
 interface ICopyToClipboard {
-  content: any,
+  content?: any,
   tip?: string,
   icon?: string,
   direction?: Placement,
   className?: string,
   title?: string,
-  children?: JSX.Element
+  children?: JSX.Element,
+  getContent?: () => any
 }
 export const CopyToClipboard = (props: ICopyToClipboard) => {
-  let { content, tip = 'Copy', icon = 'fa-copy', direction = 'right', children, ...otherProps } = props
+  const { tip = 'Copy', icon = 'fa-copy', direction = 'right', getContent, children, ...otherProps } = props
+  let { content } = props
   const [message, setMessage] = useState(tip)
-  const handleClick = (e) => {
-    if (content && content !== '') { // module `copy` keeps last copied thing in the memory, so don't show tooltip if nothing is copied, because nothing was added to memory
-      try {
-        if (typeof content !== 'string') {
-          content = JSON.stringify(content, null, '\t')
-        }
-        copy(content)
-        setMessage('Copied')
-      } catch (e) {
-        console.error(e)
+
+  const copyData = () => {
+    try {
+      if (content === '') {
+        setMessage('Cannot copy empty content!')
+        return
       }
+      if (typeof content !== 'string') {
+        content = JSON.stringify(content, null, '\t')
+      }
+      copy(content)
+      setMessage('Copied')
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  const handleClick = (e: any) => {
+    if (content) { // module `copy` keeps last copied thing in the memory, so don't show tooltip if nothing is copied, because nothing was added to memory
+      copyData()
     } else {
-      setMessage('Cannot copy empty content!')
+      content = getContent && getContent()
+      copyData()
     }
     e.preventDefault()
-    return false
   }
 
   const reset = () => {
-    setTimeout(() => setMessage('Copy'), 500)
+    setTimeout(() => setMessage(tip), 500)
   }
 
-  return (
-    // eslint-disable-next-line jsx-a11y/anchor-is-valid
-    <a href='#' onClick={handleClick} onMouseLeave={reset}>
-      <OverlayTrigger placement={direction} overlay={
-        <Tooltip id="overlay-tooltip">
-          { message }
-        </Tooltip>
-      }>
-        {
-          children || (<i className={`far ${icon} ml-1 p-2`} aria-hidden="true"
+  const childJSX = (
+    children || (<i className={`far ${icon} ml-1 p-2`} aria-hidden="true"
             {...otherProps}
           ></i>)
-        }
-      </OverlayTrigger>
+  )
+
+  return (
+    <a href='#' onClick={handleClick} onMouseLeave={reset}>
+      <CustomTooltip
+        tooltipText={message}
+        tooltipId="overlay-tooltip"
+        placement={direction}
+      >
+        {childJSX}
+      </CustomTooltip>
     </a>
   )
 }

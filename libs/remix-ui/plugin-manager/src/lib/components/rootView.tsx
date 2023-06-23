@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import React, { Fragment, ReactNode, useEffect, useState } from 'react' // eslint-disable-line no-use-before-define
+import { FormattedMessage } from 'react-intl'
 import { PluginManagerComponent, PluginManagerSettings } from '../../types'
 import PermisssionsSettings from './permissionsSettings'
 import { Profile } from '@remixproject/plugin-utils'
@@ -7,7 +8,6 @@ import LocalPluginForm from './LocalPluginForm'
 
 interface RootViewProps {
   pluginComponent: PluginManagerComponent
-  pluginManagerSettings: PluginManagerSettings
   children: ReactNode
 }
 
@@ -21,7 +21,7 @@ export interface pluginActivated {
   profile: Profile
 }
 
-function RootView ({ pluginComponent, pluginManagerSettings, children }: RootViewProps) {
+function RootView ({ pluginComponent, children }: RootViewProps) {
   const [visible, setVisible] = useState<boolean>(true)
   const [filterPlugins, setFilterPlugin] = useState<string>('')
 
@@ -36,7 +36,7 @@ function RootView ({ pluginComponent, pluginManagerSettings, children }: RootVie
   return (
     <Fragment>
       <div id="pluginManager" data-id="pluginManagerComponentPluginManager">
-        <header className="form-group remixui_pluginSearch plugins-header py-3 px-4 border-bottom" data-id="pluginManagerComponentPluginManagerHeader">
+        <header className="form-group remixui_pluginSearch plugins-header pt-3 pb-0 px-4 border-bottom" data-id="pluginManagerComponentPluginManagerHeader">
           <input
             type="text"
             onChange={(event) => {
@@ -48,11 +48,11 @@ function RootView ({ pluginComponent, pluginManagerSettings, children }: RootVie
             data-id="pluginManagerComponentSearchInput"
           />
           <button onClick={openModal} className="remixui_pluginSearchButton btn bg-transparent text-dark border-0 mt-2 text-underline" data-id="pluginManagerComponentPluginSearchButton">
-            Connect to a Local Plugin
+            <FormattedMessage id='pluginManager.connectLocal' />
           </button>
         </header>
         {children}
-        <PermisssionsSettings pluginSettings={pluginManagerSettings}/>
+        <PermisssionsSettings />
       </div>
       <LocalPluginForm
         closeModal={closeModal}

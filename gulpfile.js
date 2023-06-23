@@ -51,7 +51,9 @@ task('syncLibVersions', async function () {
         'remix-solidity',
         'remix-tests',
         'remix-url-resolver',
-        'remixd'
+        'remix-ws-templates',
+        'remixd',
+        'ghaction-helper'
     ]
 
     libs.forEach(lib => {

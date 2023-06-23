@@ -35,7 +35,7 @@ tape('ContractParameters - (TxFormat.buildData) - format input parameters', func
 
 function testWithInput (st, params, expected) {
   txFormat.buildData('uintContractTest', context.contract, context.output.contracts, true, context.contract.abi[0], params, (error, data) => {
-    if (error) { return st.fails(error) }
+    if (error) { return st.fail(error) }
     console.log(data)
     if (!data.dataHex.endsWith(expected)) {
       st.fail(`result of buildData ${data.dataHex} should end with ${expected} . `)
@@ -62,7 +62,7 @@ tape('ContractStringParameters - (TxFormat.buildData) - format string input para
 
 function testWithStringInput (st, params, expected) {
   txFormat.buildData('stringContractTest', context.contract, context.output.contracts, true, context.contract.abi[0], params, (error, data) => {
-    if (error) { return st.fails(error) }
+    if (error) { return st.fail(error) }
     console.log(data)
     if (!data.dataHex.endsWith(expected)) {
       st.fail(`result of buildData ${data.dataHex} should end with ${expected} . `)
@@ -88,7 +88,7 @@ tape('ContractArrayParameters - (TxFormat.buildData) - format array input parame
 
 function testWithArrayInput (st, params, expected) {
   txFormat.buildData('arrayContractTest', context.contract, context.output.contracts, true, context.contract.abi[0], params, (error, data) => {
-    if (error) { return st.fails(error) }
+    if (error) { return st.fail(error) }
     console.log(data)
     if (!data.dataHex.endsWith(expected)) {
       st.fail(`result of buildData ${data.dataHex} should end with ${expected} . `)
@@ -101,7 +101,7 @@ function testWithArrayInput (st, params, expected) {
 tape('ContractNestedArrayParameters - (TxFormat.buildData) - format nested array input parameters', function (t) {
   let output = compiler.compile(compilerInput(nestedArrayContract))
   output = JSON.parse(output)
-  let contract = output.contracts['test.sol']['nestedArrayContractTest']
+  const contract = output.contracts['test.sol']['nestedArrayContractTest']
   context = { output, contract }
   t.test('(TxFormat.buildData)', function (st) {
     st.plan(2)
@@ -113,7 +113,7 @@ tape('ContractNestedArrayParameters - (TxFormat.buildData) - format nested array
 function testWithNestedArrayInput (st, params, expected) {
   txFormat.buildData('nestedArrayContractTest', context.contract, context.output.contracts, true, context.contract.abi[4], params, (error, data) => {
     if (error) {
-      return st.fails(error)
+      return st.fail(error)
     }
     console.log(data)
     if (!data.dataHex.endsWith(expected)) {
@@ -127,7 +127,7 @@ function testWithNestedArrayInput (st, params, expected) {
 tape('abiEncoderV2InvalidTuple - (TxFormat.buildData) - should throw error for invalid tuple value', function (t) {
   let output = compiler.compile(compilerInput(abiEncoderV2InvalidTuple))
   output = JSON.parse(output)
-  let contract = output.contracts['test.sol']['test']
+  const contract = output.contracts['test.sol']['test']
   context = { output, contract }
   t.test('(TxFormat.buildData)', function (st) {
     st.plan(4)
@@ -185,7 +185,7 @@ function testLinkLibrary (st, fakeDeployedContracts, callbackDeployLibraries) {
   const deployMsg = ['creation of library test.sol:lib1 pending...',
   'creation of library test.sol:lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2_lib2 pending...']
   txFormat.buildData('testContractLinkLibrary', context.contract, context.output.contracts, true, context.contract.abi[0], '', (error, data) => {
-    if (error) { return st.fails(error) }
+    if (error) { return st.fail(error) }
     console.log(data)
     const linkedbyteCode = data.dataHex
     let libReference = context.contract.evm.bytecode.linkReferences['test.sol']['lib1']
@@ -286,12 +286,12 @@ tape('test abiEncoderV2', function (t) {
     st.plan(2)
     let output = compiler.compile(compilerInput(abiEncoderV2))
     output = JSON.parse(output)
-    let contract = output.contracts['test.sol']['test']
+    const contract = output.contracts['test.sol']['test']
     txFormat.encodeFunctionCall(decodedData, contract.abi[0], (error, encoded) => {
       console.log(error)
       st.equal(encoded.dataHex, functionId + encodedData.replace('0x', ''))
     })
-    let decoded = txFormat.decodeResponse(hexToIntArray(encodedData), contract.abi[0])
+    const decoded = txFormat.decodeResponse(hexToIntArray(encodedData), contract.abi[0])
     console.log(decoded)
     st.equal(decoded[0], `tuple(uint256,uint256,string): ${value1},${value2},${value3}`)
   })

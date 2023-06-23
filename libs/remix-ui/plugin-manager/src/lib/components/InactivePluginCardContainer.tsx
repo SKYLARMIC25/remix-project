@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Profile } from '@remixproject/plugin-utils'
 import React from 'react' // eslint-disable-line no-use-before-define
-import { PluginManagerComponent, PluginManagerProfile } from '../../types'
+import { useIntl } from 'react-intl'
+import { PluginManagerComponent } from '../../types'
 import InactivePluginCard from './InactivePluginCard'
 import ModuleHeading from './moduleHeading'
 
@@ -11,28 +12,20 @@ interface InactivePluginCardContainerProps {
   inactiveProfiles: Profile<any>[]
 }
 
-interface LocalPluginInterface {
-  profile: Partial<PluginManagerProfile>
-  activateService: {}
-  requestQueue: []
-  options: { queueTimeout: number }
-  id: number
-  pendingRequest: {}
-  listener: []
-  iframe: {}
-}
 function InactivePluginCardContainer ({ pluginComponent }: InactivePluginCardContainerProps) {
   const activatePlugin = (pluginName: string) => {
     pluginComponent.activateP(pluginName)
   }
 
+  const intl = useIntl();
+
   return (
     <React.Fragment>
-      {(pluginComponent.inactivePlugins && pluginComponent.inactivePlugins.length) ? <ModuleHeading headingLabel="Inactive Modules" count={pluginComponent.inactivePlugins.length} /> : null}
+      {(pluginComponent.inactivePlugins && pluginComponent.inactivePlugins.length) ? <ModuleHeading headingLabel={intl.formatMessage({ id: 'pluginManager.inactiveModules' })} count={pluginComponent.inactivePlugins.length} /> : null}
       {pluginComponent.inactivePlugins && pluginComponent.inactivePlugins.map((profile, idx) => {
         return (
           <InactivePluginCard
-            buttonText="Activate"
+            buttonText={intl.formatMessage({ id: 'pluginManager.activate' })}
             profile={profile}
             key={idx}
             activatePlugin={activatePlugin}

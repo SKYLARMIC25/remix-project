@@ -1,8 +1,3 @@
-import * as fs from 'fs'
-
-const crxFile = fs.readFileSync('apps/remix-ide-e2e/src/extensions/chrome/metamask.crx')
-const metamaskExtension = Buffer.from(crxFile).toString('base64')
-
 module.exports = {
   src_folders: ['dist/apps/remix-ide-e2e/src/tests'],
   output_folder: './reports/tests',
@@ -25,12 +20,7 @@ module.exports = {
         on_failure: true,
         on_error: true
       },
-      desiredCapabilities: {
-        browserName: 'firefox',
-        javascriptEnabled: true,
-        acceptSslCerts: true
-      },
-      exclude: ['dist/apps/remix-ide-e2e/src/tests/runAndDeploy.js', 'dist/apps/remix-ide-e2e/src/tests/pluginManager.spec.ts']
+      exclude: ['dist/apps/remix-ide-e2e/src/tests/runAndDeploy.test.js', 'dist/apps/remix-ide-e2e/src/tests/pluginManager.test.ts']
     },
 
     chrome: {
@@ -39,7 +29,24 @@ module.exports = {
         javascriptEnabled: true,
         acceptSslCerts: true,
         'goog:chromeOptions': {
-          args: ['window-size=2560,1440', 'start-fullscreen']
+          args: ['window-size=2560,1440', 
+          'start-fullscreen', 
+          '--no-sandbox', 
+          '--headless', 
+          '--verbose',
+          "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.0.0 Safari/537.36",
+          ]
+        }
+      }
+    },
+
+    chromeDesktop: {
+      desiredCapabilities: {
+        browserName: 'chrome',
+        javascriptEnabled: true,
+        acceptSslCerts: true,
+        'goog:chromeOptions': {
+          args: ['window-size=2560,1440', 'start-fullscreen', '--no-sandbox']
         }
       }
     },
@@ -50,25 +57,22 @@ module.exports = {
         javascriptEnabled: true,
         acceptSslCerts: true,
         'goog:chromeOptions': {
-          args: ['window-size=2560,1440', 'start-fullscreen'],
-          extensions: [metamaskExtension]
+          args: ['window-size=2560,1440', 'start-fullscreen', '--no-sandbox', '--headless', '--verbose']
         }
       }
     },
 
-    safari: {
+    firefoxDesktop: {
       desiredCapabilities: {
-        browserName: 'safari',
+        browserName: 'firefox',
         javascriptEnabled: true,
-        acceptSslCerts: true
-      }
-    },
-
-    ie: {
-      desiredCapabilities: {
-        browserName: 'internet explorer',
-        javascriptEnabled: true,
-        acceptSslCerts: true
+        acceptSslCerts: true,
+        'moz:firefoxOptions': {
+          args: [
+            '-width=2560',
+            '-height=1440'
+          ]
+        }
       }
     },
 
@@ -76,7 +80,14 @@ module.exports = {
       desiredCapabilities: {
         browserName: 'firefox',
         javascriptEnabled: true,
-        acceptSslCerts: true
+        acceptSslCerts: true,
+        'moz:firefoxOptions': {
+          args: [
+            '-headless',
+            '-width=2560',
+            '-height=1440'
+          ]
+        }
       }
     }
   }

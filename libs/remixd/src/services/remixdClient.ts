@@ -1,16 +1,18 @@
 import { PluginClient } from '@remixproject/plugin'
-import { SharedFolderArgs, TrackDownStreamUpdate, Filelist, ResolveDirectory, FileContent } from '../types' // eslint-disable-line
+import { SharedFolderArgs, Filelist, ResolveDirectory, FileContent } from '../types' // eslint-disable-line
 import * as WS from 'ws' // eslint-disable-line
 import * as utils from '../utils'
 import * as chokidar from 'chokidar'
 import * as fs from 'fs-extra'
 import * as isbinaryfile from 'isbinaryfile'
+import * as pathModule from 'path'
 
 export class RemixdClient extends PluginClient {
   methods: Array<string>
-  trackDownStreamUpdate: TrackDownStreamUpdate = {}
   websocket: WS
   currentSharedFolder: string
+  watcher: chokidar.FSWatcher
+  trackDownStreamUpdate: Record<string, string> = {}
 
   constructor (private readOnly = false) {
     super()
@@ -19,11 +21,14 @@ export class RemixdClient extends PluginClient {
 
   setWebSocket (websocket: WS): void {
     this.websocket = websocket
+    this.websocket.addEventListener('close', () => {
+      if (this.watcher) this.watcher.close()
+    })
   }
 
   sharedFolder (currentSharedFolder: string): void {
     this.currentSharedFolder = currentSharedFolder
-    if (this.isLoaded) this.emit('rootFolderChanged')
+    if (this.isLoaded) this.emit('rootFolderChanged', this.currentSharedFolder)
   }
 
   list (): Filelist {
@@ -58,7 +63,7 @@ export class RemixdClient extends PluginClient {
           return reject(new Error('File not found ' + path))
         }
         if (!isRealPath(path)) return
-        isbinaryfile(path, (error: Error, isBinary: boolean) => {
+        isbinaryfile.default(path, (error: Error, isBinary: boolean) => {
           if (error) console.log(error)
           if (isBinary) {
             resolve({ content: '<binary content not displayed>', readonly: true })
@@ -97,12 +102,12 @@ export class RemixdClient extends PluginClient {
           console.log('trying to write "undefined" ! stopping.')
           return reject(new Error('trying to write "undefined" ! stopping.'))
         }
-        this.trackDownStreamUpdate[path] = path
         if (!exists && args.path.indexOf('/') !== -1) {
           // the last element is the filename and we should remove it
           this.createDir({ path: args.path.substr(0, args.path.lastIndexOf('/')) })
         }
         try {
+          this.trackDownStreamUpdate[path] = args.content
           fs.writeFile(path, args.content, 'utf8', (error: Error) => {
             if (error) {
               console.log(error)
@@ -246,7 +251,7 @@ export class RemixdClient extends PluginClient {
     const absPath = utils.absolutePath('./', path)
 
     if (!isRealPath(absPath)) return
-    const watcher = chokidar.watch(path, { depth: 0, ignorePermissionErrors: true })
+    this.watcher = chokidar.watch(path, { depth: 2, ignorePermissionErrors: true })
     console.log('setup notifications for ' + path)
     /* we can't listen on created file / folder
     watcher.on('add', (f, stat) => {
@@ -260,18 +265,23 @@ export class RemixdClient extends PluginClient {
       this.emit('created', { path: utils.relativePath(f, this.currentSharedFolder), isReadOnly: false, isFolder: true })
     })
     */
-    watcher.on('change', (f: string) => {
-      if (this.trackDownStreamUpdate[f]) {
-        delete this.trackDownStreamUpdate[f]
-        return
+    this.watcher.on('change', async (f: string) => {
+      const path = pathModule.resolve(f)
+      const currentContent = this.trackDownStreamUpdate[path]
+      const newContent = fs.readFileSync(f, 'utf-8')
+      if (currentContent !== newContent && this.isLoaded) {
+        this.emit('changed', utils.relativePath(f, this.currentSharedFolder))
       }
-      this.emit('changed', utils.relativePath(f, this.currentSharedFolder))
     })
-    watcher.on('unlink', (f: string) => {
-      this.emit('removed', utils.relativePath(f, this.currentSharedFolder), false)
+    this.watcher.on('unlink', async (f: string) => {
+      if (this.isLoaded) {
+        this.emit('removed', utils.relativePath(f, this.currentSharedFolder), false)    
+      }
     })
-    watcher.on('unlinkDir', (f: string) => {
-      this.emit('removed', utils.relativePath(f, this.currentSharedFolder), true)
+    this.watcher.on('unlinkDir', async (f: string) => {
+      if (this.isLoaded) {
+        this.emit('removed', utils.relativePath(f, this.currentSharedFolder), true)    
+      }
     })
   }
 }

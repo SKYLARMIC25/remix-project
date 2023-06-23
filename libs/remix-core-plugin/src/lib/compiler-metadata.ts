@@ -1,6 +1,7 @@
 'use strict'
 import { Plugin } from '@remixproject/engine'
 import { CompilerAbstract } from '@remix-project/remix-solidity'
+import { createHash } from 'crypto'
 
 const profile = {
   name: 'compilerMetadata',
@@ -12,10 +13,12 @@ const profile = {
 export class CompilerMetadata extends Plugin {
   networks: string[]
   innerPath: string
+  buildInfoNames: Record<string, string>
   constructor () {
     super(profile)
-    this.networks = ['VM:-', 'main:1', 'ropsten:3', 'rinkeby:4', 'kovan:42', 'görli:5', 'Custom']
+    this.networks = ['VM:-', 'main:1', 'ropsten:3', 'rinkeby:4', 'kovan:42', 'goerli:5', 'Custom']
     this.innerPath = 'artifacts'
+    this.buildInfoNames = {}
   }
 
   _JSONFileName (path, contractName) {
@@ -27,11 +30,15 @@ export class CompilerMetadata extends Plugin {
   }
 
   onActivation () {
-    var self = this
-    this.on('solidity', 'compilationFinished', async (file, source, languageVersion, data) => {
+    const self = this
+    this.on('filePanel', 'setWorkspace', () => {
+      this.buildInfoNames = {}
+    })
+    this.on('solidity', 'compilationFinished', async (file, source, languageVersion, data, input, version) => {
       if (!await this.call('settings', 'get', 'settings/generate-contract-metadata')) return
-      const compiler = new CompilerAbstract(languageVersion, data, source)
-      var path = self._extractPathOf(source.target)
+      const compiler = new CompilerAbstract(languageVersion, data, source, input)
+      const path = self._extractPathOf(source.target)
+      await this.setBuildInfo(version, input, data, path, file)
       compiler.visitContracts((contract) => {
         if (contract.file !== source.target) return
         (async () => {
@@ -43,37 +50,83 @@ export class CompilerMetadata extends Plugin {
     })
   }
 
+  // Access each file in build-info, check the input sources
+  // If they are all same as in current compiled file and sources includes the path of compiled file, remove old build file
+  async removeStoredBuildInfo (currentInput, path, filePath) {
+    const buildDir = this.joinPath(path, this.innerPath, 'build-info/')
+    if (await this.call('fileManager', 'exists', buildDir)) {
+      const allBuildFiles = await this.call('fileManager', 'fileList', buildDir)
+      const currentInputFileNames = Object.keys(currentInput.sources)
+      for (const fileName of allBuildFiles) {
+        let fileContent = await this.call('fileManager', 'readFile', fileName)
+        fileContent = JSON.parse(fileContent)
+        const inputFiles = Object.keys(fileContent.input.sources)
+        const inputIntersection = currentInputFileNames.filter(element => !inputFiles.includes(element))
+        if (inputIntersection.length === 0 && inputFiles.includes(filePath)) await this.call('fileManager', 'remove', fileName)
+      }
+    }
+  }
+
+  async setBuildInfo (version, input, output, path, filePath) {
+    input = JSON.parse(input)
+    const solcLongVersion = version.replace('.Emscripten.clang', '')
+    const solcVersion = solcLongVersion.substring(0, solcLongVersion.indexOf('+commit'))
+    const format = 'hh-sol-build-info-1'
+    const json = JSON.stringify({
+      _format: format,
+      solcVersion,
+      solcLongVersion,
+      input
+    })
+    const id =  createHash('md5').update(Buffer.from(json)).digest().toString('hex')
+    const buildFilename = this.joinPath(path, this.innerPath, 'build-info/' +  id + '.json')
+    // If there are no file in buildInfoNames,it means compilation is running first time after loading Remix
+    if (!this.buildInfoNames[filePath]) {
+      // Check the existing build-info and delete all the previous build files for compiled file
+      await this.removeStoredBuildInfo(input, path, filePath)
+      this.buildInfoNames[filePath] = buildFilename
+      const buildData = {id, _format: format, solcVersion, solcLongVersion, input, output}
+      await this.call('fileManager', 'writeFile', buildFilename, JSON.stringify(buildData, null, '\t'))
+    } else if (this.buildInfoNames[filePath] && this.buildInfoNames[filePath] !== buildFilename) {
+        await this.call('fileManager', 'remove', this.buildInfoNames[filePath])
+        this.buildInfoNames[filePath] = buildFilename
+        const buildData = {id, _format: format, solcVersion, solcLongVersion, input, output}
+        await this.call('fileManager', 'writeFile', buildFilename, JSON.stringify(buildData, null, '\t'))
+    }
+  }
+
   _extractPathOf (file) {
-    var reg = /(.*)(\/).*/
-    var path = reg.exec(file)
+    const reg = /(.*)(\/).*/
+    const path = reg.exec(file)
     return path ? path[1] : '/'
   }
 
   async _setArtefacts (content, contract, path) {
     content = content || '{}'
-    var metadata
+    const fileName = this._JSONFileName(path, contract.name)
+    const metadataFileName = this._MetadataFileName(path, contract.name)
+
+    let metadata
     try {
       metadata = JSON.parse(content)
     } catch (e) {
       console.log(e)
     }
-    var fileName = this._JSONFileName(path, contract.name)
-    var metadataFileName = this._MetadataFileName(path, contract.name)
 
-    var deploy = metadata.deploy || {}
+    const deploy = metadata.deploy || {}
     this.networks.forEach((network) => {
       deploy[network] = this._syncContext(contract, deploy[network] || {})
     })
 
     let parsedMetadata
     try {
-      parsedMetadata = JSON.parse(contract.object.metadata)
+      parsedMetadata = contract.object && contract.object.metadata ? JSON.parse(contract.object.metadata) : null
     } catch (e) {
       console.log(e)
     }
     if (parsedMetadata) await this.call('fileManager', 'writeFile', metadataFileName, JSON.stringify(parsedMetadata, null, '\t'))
 
-    var data = {
+    const data = {
       deploy,
       data: {
         bytecode: contract.object.evm.bytecode,
@@ -83,18 +136,19 @@ export class CompilerMetadata extends Plugin {
       },
       abi: contract.object.abi
     }
-    await this.call('fileManager', 'writeFile', fileName, JSON.stringify(data, null, '\t'))
+    await this.call('fileManager', 'writeFile', fileName, JSON.stringify(data, null, '\t'))    
+    this.emit('artefactsUpdated', fileName, contract)
   }
 
   _syncContext (contract, metadata) {
-    var linkReferences = metadata.linkReferences
-    var autoDeployLib = metadata.autoDeployLib
+    let linkReferences = metadata.linkReferences
+    let autoDeployLib = metadata.autoDeployLib
     if (!linkReferences) linkReferences = {}
     if (autoDeployLib === undefined) autoDeployLib = true
 
-    for (var libFile in contract.object.evm.bytecode.linkReferences) {
+    for (const libFile in contract.object.evm.bytecode.linkReferences) {
       if (!linkReferences[libFile]) linkReferences[libFile] = {}
-      for (var lib in contract.object.evm.bytecode.linkReferences[libFile]) {
+      for (const lib in contract.object.evm.bytecode.linkReferences[libFile]) {
         if (!linkReferences[libFile][lib]) {
           linkReferences[libFile][lib] = '<address>'
         }

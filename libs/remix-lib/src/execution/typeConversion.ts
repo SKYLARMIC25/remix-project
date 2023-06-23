@@ -1,5 +1,6 @@
 'use strict'
-import { BN, bufferToHex } from 'ethereumjs-util'
+import { BN } from 'bn.js'
+import { bufferToHex } from '@ethereumjs/util'
 
 export function toInt (h) {
   if (h.indexOf && h.indexOf('0x') === 0) {
@@ -10,13 +11,13 @@ export function toInt (h) {
   return h
 }
 
-export var stringify = convertToString
+export const stringify = convertToString
 
 function convertToString (v) {
   try {
     if (v instanceof Array) {
       const ret = []
-      for (var k in v) {
+      for (const k in v) {
         ret.push(convertToString(v[k]))
       }
       return ret

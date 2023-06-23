@@ -1,17 +1,8 @@
+import React from 'react' // eslint-disable-line
 import { Plugin } from '@remixproject/engine'
-const yo = require('yo-yo')
-const $ = require('jquery')
+import { TabsUI } from '@remix-ui/tabs'
+import { PluginViewWrapper, getPathIcon } from '@remix-ui/helper'
 const EventEmitter = require('events')
-const globalRegistry = require('../../global/registry')
-const csjs = require('csjs-inject')
-const helper = require('../../lib/helper')
-require('remix-tabs')
-
-const css = csjs`
-  .remix_tabs div[title]{
-    display: flex;
-  }
-`
 
 const profile = {
   name: 'tabs',
@@ -19,80 +10,116 @@ const profile = {
   kind: 'other'
 }
 
-// @todo(#650) Merge this with MainPanel into one plugin
 export class TabProxy extends Plugin {
-  constructor (fileManager, editor, appManager) {
+  constructor (fileManager, editor) {
     super(profile)
     this.event = new EventEmitter()
     this.fileManager = fileManager
-    this.appManager = appManager
     this.editor = editor
     this.data = {}
     this._view = {}
     this._handlers = {}
     this.loadedTabs = []
+    this.dispatch = null
+    this.themeQuality = 'dark'
+  }
 
-    globalRegistry.get('themeModule').api.events.on('themeChanged', (theme) => {
-    // update invert for all icons
-      this.updateImgStyles()
+  async onActivation () {
+    this.on('theme', 'themeChanged', (theme) => {
+      this.themeQuality = theme.quality
+      // update invert for all icons
+      this.renderComponent()
     })
 
-    fileManager.events.on('filesAllClosed', () => {
+    this.on('fileManager', 'filesAllClosed', () => {
       this.call('manager', 'activatePlugin', 'home')
-      this._view.filetabs.active = 'home'
+      this.focus('home')
     })
 
-    fileManager.events.on('fileRemoved', (name) => {
-      const workspace = this.fileManager.currentWorkspace()
-      workspace ? this.removeTab(workspace + '/' + name) : this.removeTab(this.fileManager.mode + '/' + name)
-    })
-
-    fileManager.events.on('fileClosed', (name) => {
+    this.on('fileManager', 'fileRemoved', (name) => {
       const workspace = this.fileManager.currentWorkspace()
 
-      workspace ? this.removeTab(workspace + '/' + name) : this.removeTab(this.fileManager.mode + '/' + name)
-    })
-
-    fileManager.events.on('currentFileChanged', (file) => {
-      const workspace = this.fileManager.currentWorkspace()
-
-      if (workspace) {
-        const workspacePath = workspace + '/' + file
-
-        if (this._handlers[workspacePath]) {
-          this._view.filetabs.activateTab(workspacePath)
-          return
-        }
-        this.addTab(workspacePath, '', () => {
-          this.fileManager.open(file)
-          this.event.emit('openFile', file)
-        },
-        () => {
-          this.fileManager.closeFile(file)
-          this.event.emit('closeFile', file)
-        })
+      if (this.fileManager.mode === 'browser') {
+        name = name.startsWith(workspace + '/') ? name : workspace + '/' + name
+        // If deleted file is not current file and not an active tab in editor,
+        // ensure current file is active in the editor
+        if (this.fileManager.currentFile() && name !== this.fileManager.currentFile()) {
+          const currentFile = this.fileManager.currentFile()
+          const currentFileTabPath = currentFile.startsWith(workspace + '/') ? currentFile : workspace + '/' + currentFile
+          this.removeTab(name, { name: currentFileTabPath })
+        } else this.removeTab(name)
       } else {
-        const path = this.fileManager.mode + '/' + file
-
-        if (this._handlers[path]) {
-          this._view.filetabs.activateTab(path)
-          return
-        }
-        this.addTab(path, '', () => {
-          this.fileManager.open(file)
-          this.event.emit('openFile', file)
-        },
-        () => {
-          this.fileManager.closeFile(file)
-          this.event.emit('closeFile', file)
-        })
+        name = name.startsWith(this.fileManager.mode + '/') ? name : this.fileManager.mode + '/' + name
+        this.removeTab(name)
       }
     })
 
-    fileManager.events.on('fileRenamed', (oldName, newName, isFolder) => {
+    this.on('fileManager', 'fileClosed', (name) => {
+      const workspace = this.fileManager.currentWorkspace()
+      if (this.fileManager.mode === 'browser') {
+        name = name.startsWith(workspace + '/') ? name : workspace + '/' + name
+        let tabIndex = this.loadedTabs.findIndex(tab => tab.name === name)
+
+        // If tab doesn't exist, check if tab is opened because of abrupt disconnection with remixd
+        if (tabIndex === -1) {
+          const nameArray = name.split('/')
+          nameArray.shift()
+          name = 'localhost' + '/' + nameArray.join('/')
+          tabIndex = this.loadedTabs.findIndex(tab => tab.name === name)
+          if(tabIndex !== -1) this.removeTab(name)
+        } else this.removeTab(name)
+      } else {
+        name = name.startsWith(this.fileManager.mode + '/') ? name : this.fileManager.mode + '/' + name
+        this.removeTab(name)
+      }
+    })
+
+    this.on('fileManager', 'currentFileChanged', (file) => {
       const workspace = this.fileManager.currentWorkspace()
 
-      if (workspace) {
+      if (this.fileManager.mode === 'browser') {
+        const workspacePath = workspace + '/' + file
+
+        if (this._handlers[workspacePath]) {
+          this.tabsApi.activateTab(workspacePath)
+          return
+        }
+        this.addTab(workspacePath, '', async () => {
+          await this.fileManager.open(file)
+          this.event.emit('openFile', file)
+          this.emit('openFile', file)
+        },
+        async () => {
+          await this.fileManager.closeFile(file)
+          this.event.emit('closeFile', file)
+          this.emit('closeFile', file)
+        })
+        this.tabsApi.activateTab(workspacePath)
+      } else {
+        const path = file.startsWith(this.fileManager.mode + '/') ? file : this.fileManager.mode + '/' + file
+
+        if (this._handlers[path]) {
+          this.tabsApi.activateTab(path)
+          return
+        }
+        this.addTab(path, '', async () => {
+          await this.fileManager.open(file)
+          this.event.emit('openFile', file)
+          this.emit('openFile', file)
+        },
+        async () => {
+          await this.fileManager.closeFile(file)
+          this.event.emit('closeFile', file)
+          this.emit('closeFile', file)
+        })
+        this.tabsApi.activateTab(path)
+      }
+    })
+
+    this.on('fileManager', 'fileRenamed', (oldName, newName, isFolder) => {
+      const workspace = this.fileManager.currentWorkspace()
+
+      if (this.fileManager.mode === 'browser') {
         if (isFolder) {
           for (const tab of this.loadedTabs) {
             if (tab.name.indexOf(workspace + '/' + oldName + '/') === 0) {
@@ -115,52 +142,61 @@ export class TabProxy extends Plugin {
           return
         }
         // should change the tab title too
-        this.renameTab(this.fileManager.mode + '/' + oldName, workspace + '/' + newName)
+        this.renameTab(this.fileManager.mode + '/' + oldName, this.fileManager.mode + '/' + newName)
       }
     })
 
-    appManager.event.on('activate', ({ name, location, displayName, icon }) => {
+    this.on('manager', 'pluginActivated', ({ name, location, displayName, icon, description }) => {
       if (location === 'mainPanel') {
         this.addTab(
           name,
           displayName,
-          () => this.event.emit('switchApp', name),
+          () => this.emit('switchApp', name),
           () => {
-            this.event.emit('closeApp', name)
+            if (name === 'home' && this.loadedTabs.length === 1 && this.loadedTabs[0].id === "home") {
+              const files = Object.keys(this.editor.sessions)
+              files.forEach(filepath => this.editor.discard(filepath))
+            }
+            this.emit('closeApp', name)
             this.call('manager', 'deactivatePlugin', name)
           },
-          icon
+          icon,
+          description
         )
         this.switchTab(name)
       }
     })
 
-    appManager.event.on('deactivate', (profile) => {
+    this.on('manager', 'pluginDeactivated', (profile) => {
       this.removeTab(profile.name)
     })
+
+    this.on('fileDecorator', 'fileDecoratorsChanged', async (items) => {
+      this.tabsApi.setFileDecorations(items)
+    })
+    
+    try {
+      this.themeQuality = (await this.call('theme', 'currentTheme') ).quality
+    } catch (e) {
+      console.log('theme plugin has an issue: ', e)
+    }
+    this.renderComponent()
   }
 
   focus (name) {
-    this.event.emit('switchApp', name)
-    this._view.filetabs.activateTab(name)
-  }
-
-  updateImgStyles () {
-    const images = this._view.filetabs.getElementsByClassName('iconImage')
-    for (const element of images) {
-      globalRegistry.get('themeModule').api.fixInvert(element)
-    };
+    this.emit('switchApp', name)
+    this.tabsApi.activateTab(name)
   }
 
   switchTab (tabName) {
     if (this._handlers[tabName]) {
       this._handlers[tabName].switchTo()
-      this._view.filetabs.activateTab(tabName)
+      this.tabsApi.activateTab(tabName)
     }
   }
 
   switchNextTab () {
-    const active = this._view.filetabs.active
+    const active = this.tabsApi.active()
     if (active && this._handlers[active]) {
       const handlers = Object.keys(this._handlers)
       let i = handlers.indexOf(active)
@@ -172,7 +208,7 @@ export class TabProxy extends Plugin {
   }
 
   switchPreviousTab () {
-    const active = this._view.filetabs.active
+    const active = this.tabsApi.active()
     if (active && this._handlers[active]) {
       const handlers = Object.keys(this._handlers)
       let i = handlers.indexOf(active)
@@ -183,27 +219,13 @@ export class TabProxy extends Plugin {
     }
   }
 
-  switchToActiveTab () {
-    const active = this._view.filetabs.active
-    if (active && this._handlers[active]) {
-      this.switchTab(active)
-    }
-  }
-
   renameTab (oldName, newName) {
-    this.addTab(newName, '', () => {
-      this.fileManager.open(newName)
-      this.event.emit('openFile', newName)
-    },
-    () => {
-      this.fileManager.closeFile(newName)
-      this.event.emit('closeFile', newName)
-    })
+    // The new tab is being added by FileManager
     this.removeTab(oldName)
   }
 
-  addTab (name, title, switchTo, close, icon) {
-    if (this._handlers[name]) return
+  addTab (name, title, switchTo, close, icon, description = '') {
+    if (this._handlers[name]) return this.renderComponent()
 
     var slash = name.split('/')
     const tabPath = slash.reverse()
@@ -219,118 +241,123 @@ export class TabProxy extends Plugin {
           title = formatPath.join('/')
           const titleLength = formatPath.length
           this.loadedTabs.push({
+            id: name,
             name,
-            title
+            title,
+            icon,
+            tooltip: name,
+            iconClass: getPathIcon(name)
           })
           formatPath.shift()
           if (formatPath.length > 0) {
-            const duplicateTabName = this.loadedTabs.find(({ title }) => title === formatPath.join('/')).name
-            const duplicateTabPath = duplicateTabName.split('/')
-            const duplicateTabFormatPath = [...duplicateTabPath].reverse()
-            const duplicateTabTitle = duplicateTabFormatPath.slice(0, titleLength).reverse().join('/')
-
-            this.loadedTabs.push({
-              name: duplicateTabName,
-              title: duplicateTabTitle
-            })
-            this._view.filetabs.removeTab(duplicateTabName)
-            this._view.filetabs.addTab({
-              id: duplicateTabName,
-              title: duplicateTabTitle,
-              icon,
-              tooltip: duplicateTabName,
-              iconClass: helper.getPathIcon(duplicateTabName)
-            })
+            const index = this.loadedTabs.findIndex(({ title }) => title === formatPath.join('/'))
+            if (index > -1) {
+              const duplicateTabName = this.loadedTabs[index].name
+              const duplicateTabTooltip = this.loadedTabs[index].description
+              const duplicateTabPath = duplicateTabName.split('/')
+              const duplicateTabFormatPath = [...duplicateTabPath].reverse()
+              const duplicateTabTitle = duplicateTabFormatPath.slice(0, titleLength).reverse().join('/')
+              this.loadedTabs[index] = {
+                id: duplicateTabName,
+                name: duplicateTabName,
+                title: duplicateTabTitle,
+                icon,
+                tooltip: duplicateTabTooltip || duplicateTabTitle,
+                iconClass: getPathIcon(duplicateTabName)
+              }
+            }
           }
           break
         }
       }
     } else {
       this.loadedTabs.push({
+        id: name,
         name,
-        title
+        title,
+        icon,
+        tooltip: description || title,
+        iconClass: getPathIcon(name)
       })
     }
 
-    this._view.filetabs.addTab({
-      id: name,
-      title,
-      icon,
-      tooltip: name,
-      iconClass: helper.getPathIcon(name)
-    })
-    this.updateImgStyles()
+    this.renderComponent()
     this._handlers[name] = { switchTo, close }
   }
 
-  removeTab (name) {
-    this._view.filetabs.removeTab(name)
+  removeTab (name, currentFileTab) {
     delete this._handlers[name]
-    this.switchToActiveTab()
-    this.loadedTabs = this.loadedTabs.filter(tab => tab.name !== name)
-    this.updateImgStyles()
+    let previous = currentFileTab
+    this.loadedTabs = this.loadedTabs.filter((tab, index) => {
+      if (!previous && tab.name === name) {
+        if(index - 1  >= 0 && this.loadedTabs[index - 1])
+          previous = this.loadedTabs[index - 1]
+        else if (index + 1 && this.loadedTabs[index + 1]) 
+          previous = this.loadedTabs[index + 1]
+      }
+      return tab.name !== name
+    })
+    this.renderComponent()
+    if (previous) this.switchTab(previous.name)
   }
 
   addHandler (type, fn) {
     this.handlers[type] = fn
   }
 
-  onZoomOut () {
-    this.editor.editorFontSize(-1)
+  setDispatch (dispatch) {
+    this.dispatch = dispatch
+    this.renderComponent()
   }
 
-  onZoomIn () {
-    this.editor.editorFontSize(1)
+  updateComponent(state) {
+    return <TabsUI
+      plugin={state.plugin}
+      tabs={state.loadedTabs}
+      onSelect={state.onSelect}
+      onClose={state.onClose}
+      onZoomIn={state.onZoomIn}
+      onZoomOut={state.onZoomOut}
+      onReady={state.onReady}
+      themeQuality={state.themeQuality}
+    />
+  }
+
+  renderComponent () {
+    const onSelect = (index) => {
+      if (this.loadedTabs[index]) {
+        const name = this.loadedTabs[index].name
+        if (this._handlers[name]) this._handlers[name].switchTo()
+        this.emit('tabCountChanged', this.loadedTabs.length)
+      }
+    }
+
+    const onClose = (index) => {
+      if (this.loadedTabs[index]) {
+        const name = this.loadedTabs[index].name
+        if (this._handlers[name]) this._handlers[name].close()
+        this.emit('tabCountChanged', this.loadedTabs.length)
+      }
+    }
+
+    const onZoomIn = () => this.editor.editorFontSize(1)
+    const onZoomOut = () => this.editor.editorFontSize(-1)
+
+    const onReady = (api) => { this.tabsApi = api }
+
+    this.dispatch({
+      plugin: this,
+      loadedTabs: this.loadedTabs,
+      onSelect,
+      onClose,
+      onZoomIn,
+      onZoomOut,
+      onReady,
+      themeQuality: this.themeQuality
+    })
   }
 
   renderTabsbar () {
-    this._view.filetabs = yo`<remix-tabs class=${css.remix_tabs}></remix-tabs>`
-    this._view.filetabs.addEventListener('tabClosed', (event) => {
-      if (this._handlers[event.detail]) this._handlers[event.detail].close()
-      this.event.emit('tabCountChanged', this._view.filetabs.tabs.length)
-    })
-    this._view.filetabs.addEventListener('tabActivated', (event) => {
-      if (this._handlers[event.detail]) this._handlers[event.detail].switchTo()
-      this.event.emit('tabCountChanged', this._view.filetabs.tabs.length)
-    })
-
-    this._view.filetabs.canAdd = false
-
-    const zoomBtns = yo`
-      <div class="d-flex flex-row justify-content-center align-items-center">
-        <span data-id="tabProxyZoomOut" class="btn btn-sm px-1 fas fa-search-minus text-dark" onclick=${() => this.onZoomOut()}></span>
-        <span data-id="tabProxyZoomIn" class="btn btn-sm px-1 fas fa-search-plus text-dark" onclick=${() => this.onZoomIn()}></span>
-      </div>
-    `
-
-    // @todo(#2492) remove style after the mainPanel layout fix.
-    this._view.tabs = yo`
-      <div  style="display: -webkit-box; max-height: 32px">
-        ${zoomBtns}
-        ${this._view.filetabs}
-      </div>
-    `
-
-    // tabs
-    var $filesEl = $(this._view.filetabs)
-
-    // Switch tab
-    var self = this
-    $filesEl.on('click', '.file:not(.active)', function (ev) {
-      ev.preventDefault()
-      var name = $(this).find('.name').text()
-      self._handlers[name].switchTo()
-      return false
-    })
-
-    // Remove current tab
-    $filesEl.on('click', '.file .remove', function (ev) {
-      ev.preventDefault()
-      var name = $(this).parent().find('.name').text()
-      self._handlers[name].close()
-      return false
-    })
-
-    return this._view.tabs
+    return <div><PluginViewWrapper plugin={this} /></div>
   }
 }

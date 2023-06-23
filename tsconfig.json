@@ -1,6 +1,8 @@
 {
+  "extends": "./tsconfig.paths.json",
   "compileOnSave": false,
   "compilerOptions": {
+    "jsx": "react-jsx",
     "rootDir": ".",
     "sourceMap": true,
     "declaration": false,
@@ -8,14 +10,26 @@
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "importHelpers": true,
-    "target": "es2015",
-    "module": "commonjs",
-    "lib": ["es2017", "dom"],
+    "target": "ES2015",
+    "esModuleInterop": true,
+    "module": "CommonJS",
+    "lib": [
+      "es2017",
+      "dom",
+      "dom.iterable"
+    ],
     "skipLibCheck": true,
     "skipDefaultLibCheck": true,
     "baseUrl": ".",
-    "paths": {},
     "allowSyntheticDefaultImports": true
   },
-  "exclude": ["node_modules", "tmp"]
+  "exclude": [
+    "node_modules",
+    "tmp"
+  ],
+  "ts-node": {
+    "compilerOptions": {
+      "module": "NodeNext",
+    }
+  }
 }
